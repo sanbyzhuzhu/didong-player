@@ -24,6 +24,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.provider.OpenableColumns;
 import android.speech.tts.TextToSpeech;
@@ -107,11 +108,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private static final int MODE_REPEAT_ONE = 1;
     private static final int MODE_REPEAT_LIST = 2;
     private static final int MODE_SHUFFLE = 3;
-    private static final int COLOR_BG = 0xFF160E09;
-    private static final int COLOR_PANEL = 0xFF26170E;
-    private static final int COLOR_TEXT = 0xFFFFF4E2;
-    private static final int COLOR_SUBTLE = 0xFFD7B98E;
-    private static final int COLOR_ACCENT = 0xFFFFB451;
+    private static final int COLOR_BG = UiKit.BG;
+    private static final int COLOR_PANEL = UiKit.PANEL;
+    private static final int COLOR_TEXT = UiKit.TEXT;
+    private static final int COLOR_SUBTLE = UiKit.SUBTLE;
+    private static final int COLOR_ACCENT = UiKit.ACCENT;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<MediaEntry> library = new ArrayList<>();
@@ -183,6 +184,16 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private boolean scanning = false;
     private boolean suppressPositionSave = false;
     private boolean ttsPaused = false;
+    /** 已注册的播放器监听器，保证服务重连时不会重复叠加。 */
+    private Player.Listener playerListener;
+    /** 队列重建时间戳：重建后短时间内的 STATE_ENDED 一律忽略，避免误把进度写 0。 */
+    private long queueRebuiltAt = 0L;
+    private long lastAutoSaveAt = 0L;
+    private long shownPauseReasonAt = 0L;
+    private int tickCount = 0;
+    private int consecutivePlayErrors = 0;
+    /** 同一个外部 Intent 只处理一次，避免服务重连时重新 playAt(0) 从头播。 */
+    private String handledExternalUri = "";
     private int scannedFileCount = 0;
     private int scannedDirCount = 0;
     private float videoTouchStartX = 0f;
@@ -359,6 +370,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         advancedVisible = prefs.getBoolean("advancedVisible", false);
         mediaFilter = prefs.getString("mediaFilter", "all");
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        // 上次会话遗留的暂停原因不提示，避免刚启动就弹 Toast
+        shownPauseReasonAt = prefs.getLong("lastPauseReasonAt", 0);
+        prefs.edit().remove("lastPauseReason").apply();
         setupPlayers();
         setupUi();
         restoreImportedText();
@@ -389,6 +403,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        handledExternalUri = ""; // 用户主动再次打开文件，允许重新处理
         processExternalIntent(intent);
     }
 
@@ -460,15 +475,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         loadBackgroundMusicList();
         prepareBackgroundMusicQueue(false);
         Intent serviceIntent = new Intent(this, PlaybackService.class);
-        startService(serviceIntent);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
         bindService(serviceIntent, playbackConnection, Context.BIND_AUTO_CREATE);
-        handler.post(abLoopTicker);
+        // AB 轮询只在用户手动开启 AB 循环时才运行，避免 250ms 常驻空转
         handler.post(positionTicker);
     }
 
     private void attachPlayerListener() {
         if (player == null) return;
-        player.addListener(new Player.Listener() {
+        // 服务重连时先移除旧监听器，避免 handleEnded 被重复触发
+        if (playerListener != null) player.removeListener(playerListener);
+        playerListener = new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int playbackState) {
                 if (playbackState == Player.STATE_READY) {
@@ -481,6 +502,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying) consecutivePlayErrors = 0;
                 updatePlayPauseButton();
                 updateVideoControlVisibility();
                 refreshMediaList();
@@ -518,12 +540,19 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
             @Override
             public void onPlayerError(PlaybackException error) {
-                status("播放失败：" + error.getErrorCodeName());
-                if (queue.size() > 1) {
+                consecutivePlayErrors++;
+                saveCurrentPosition();
+                if (player != null) player.pause();
+                if (consecutivePlayErrors <= 2 && queue.size() > 1) {
+                    status("播放失败：" + error.getErrorCodeName() + "，已切到下一个文件");
                     playRelative(1);
+                } else {
+                    // 单文件队列不再静默卡死，也不再从开头重播
+                    status("播放失败：" + error.getErrorCodeName() + "（已暂停，点播放重试；反复失败请重新扫描文件夹）");
                 }
             }
-        });
+        };
+        player.addListener(playerListener);
     }
 
     private void setupUi() {
@@ -615,8 +644,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         );
         playPauseButton = (Button) playbackRow.getChildAt(1);
         playPauseButton.setTextSize(18);
-        playPauseButton.setTextColor(0xFF160E09);
-        playPauseButton.setBackgroundColor(COLOR_ACCENT);
+        UiKit.makePrimary(playPauseButton);
         controls.addView(playbackRow);
 
         controls.addView(row(
@@ -776,9 +804,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         controls.addView(loopLabel);
         controls.addView(row(
                 btn("循环模式", v -> cycleLoop()),
-                btn("A点", v -> setA()),
-                btn("B点", v -> setB()),
-                btn("清AB", v -> clearAb())
+                btn("设A点", v -> setA()),
+                btn("设B点", v -> setB()),
+                btn("AB循环", v -> toggleAb())
+        ));
+        advancedPanel.addView(row(
+                btn("清除 A/B 点", v -> clearAb())
         ));
         advancedPanel.addView(row(
                 btn("A-1秒", v -> adjustAbPoint(true, -1000)),
@@ -795,8 +826,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         textReadButton = btn("朗读/暂停", v -> speakText());
         textReadButton.setTextSize(18);
-        textReadButton.setTextColor(0xFF160E09);
-        textReadButton.setBackgroundColor(COLOR_ACCENT);
+        UiKit.makePrimary(textReadButton);
         controls.addView(row(
                 textReadButton,
                 btn("导入TXT", v -> pickText()),
@@ -1038,15 +1068,22 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         String action = intent.getAction();
         Uri uri = intent.getData();
         if (Intent.ACTION_VIEW.equals(action) && uri != null) {
-            openMediaUri(uri);
             intent.setAction(null);
             intent.setData(null);
+            if (uri.toString().equals(handledExternalUri)) return;
+            handledExternalUri = uri.toString();
+            openMediaUri(uri);
         }
     }
 
     private void openMediaUri(Uri uri) {
+        // 外部 ACTION_VIEW 打开的授权默认只在本次会话有效，尽早申请持久授权
+        try {
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (RuntimeException ignored) {
+        }
         if (!isUriReadable(uri)) {
-            status("文件不可用或授权已失效");
+            status("文件不可用或授权已失效，请重新选择文件");
             return;
         }
         String title = displayName(uri);
@@ -1249,6 +1286,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void syncPlayerQueue() {
+        syncPlayerQueue(-1);
+    }
+
+    /** @param resumePositionMs 恢复会话时传入记忆位置；-1 表示沿用播放器当前位置。 */
+    private void syncPlayerQueue(long resumePositionMs) {
         if (player == null) return;
         List<MediaItem> items = new ArrayList<>();
         for (MediaEntry entry : queue) {
@@ -1261,8 +1303,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     .setMediaMetadata(metadata)
                     .build());
         }
-        long position = currentIndex >= 0 ? player.getCurrentPosition() : 0;
+        long position = resumePositionMs >= 0 ? resumePositionMs
+                : (currentIndex >= 0 && player.getMediaItemCount() > 0 ? player.getCurrentPosition() : 0);
         int safeIndex = currentIndex >= 0 && currentIndex < items.size() ? currentIndex : 0;
+        // 重建 timeline 期间可能派发 STATE_ENDED，标记时间窗以便 handleEnded 忽略
+        queueRebuiltAt = SystemClock.elapsedRealtime();
         player.setMediaItems(items, safeIndex, position);
         player.prepare();
         player.setVolume(volumeBar == null ? 1f : volumeBar.getProgress() / 100f);
@@ -1370,10 +1415,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         suppressPositionSave = false;
         prepareLayoutForEntry(entry);
         nowPlaying.setText(entry.title + "\n" + entry.folderName);
-        if (player.getMediaItemCount() != queue.size()) syncPlayerQueue();
-        player.seekTo(index, 0);
-        long last = getStoredLong("pos:" + entry.uri, 0);
-        if (last > 0) player.seekTo(last);
+        long last = Math.max(0, getStoredLong("pos:" + entry.uri, 0));
+        if (player.getMediaItemCount() != queue.size()) syncPlayerQueue(last);
+        // 一次 seek 到位，避免先归零再定位造成的"自动重头"
+        player.seekTo(index, last);
+        consecutivePlayErrors = 0;
         float folderSpeed = prefs.getFloat(speedKey(entry), prefs.getFloat("lastSpeed", 1f));
         speedBar.setProgress(Math.round((folderSpeed - 0.25f) * 100f));
         setSpeed(folderSpeed, false);
@@ -1428,6 +1474,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             player.pause();
             saveCurrentPosition();
         } else {
+            // 用户显式点播放，清掉"摘耳机/来电"的暂停标记
+            prefs.edit().remove("lastPauseReason").apply();
+            consecutivePlayErrors = 0;
             player.play();
         }
         updatePlayPauseButton();
@@ -1478,127 +1527,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             status("当前没有正在播放的文件");
             return;
         }
-        if (System.currentTimeMillis() >= 0) {
-            startActivity(new Intent(this, NowPlayingActivity.class));
-            return;
-        }
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(16), dp(10), dp(16), dp(4));
-
-        TextView title = label(entry.title, 20, COLOR_TEXT);
-        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        TextView subtitle = label(entry.folderName + " · " + ("video".equals(entry.type) ? "视频" : "音频"), 14, COLOR_SUBTLE);
-        TextView cover = label("耳朵在树洞里听见了声音\n" + ("video".equals(entry.type) ? "视频播放" : "音频播放"), 18, 0xFFFFC15A);
-        cover.setGravity(Gravity.CENTER);
-        cover.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        cover.setBackgroundColor(0xFF2B2114);
-        cover.setPadding(dp(12), dp(24), dp(12), dp(24));
-        TextView abInfo = label("", 14, COLOR_SUBTLE);
-        TextView bookmarkInfo = label("", 14, COLOR_SUBTLE);
-        TextView progressText = label("00:00 / 00:00", 14, COLOR_SUBTLE);
-        progressText.setGravity(Gravity.CENTER);
-        SeekBar dialogSeek = new SeekBar(this);
-        dialogSeek.setMax(1000);
-        final boolean[] dragging = {false};
-        dialogSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser && player != null && player.getDuration() > 0 && player.getDuration() != C.TIME_UNSET) {
-                    long target = player.getDuration() * progress / 1000L;
-                    progressText.setText(formatMs(target) + " / " + formatMs(player.getDuration()));
-                }
-            }
-
-            @Override public void onStartTrackingTouch(SeekBar seekBar) {
-                dragging[0] = true;
-            }
-
-            @Override public void onStopTrackingTouch(SeekBar seekBar) {
-                if (player != null && player.getDuration() > 0 && player.getDuration() != C.TIME_UNSET) {
-                    player.seekTo(player.getDuration() * seekBar.getProgress() / 1000L);
-                    saveCurrentPosition();
-                }
-                dragging[0] = false;
-            }
-        });
-
-        Button dialogPlay = btn(player != null && player.isPlaying() ? "暂停" : "播放", v -> {
-            togglePlay();
-            dialogPlayText(v);
-        });
-        Button speedButton = btn(String.format(Locale.CHINA, "%.2fx", player == null ? 1f : player.getPlaybackParameters().speed), v -> showSpeedDialog());
-        panel.addView(title);
-        panel.addView(subtitle);
-        panel.addView(cover, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(120)));
-        panel.addView(abInfo);
-        panel.addView(bookmarkInfo);
-        panel.addView(progressText);
-        panel.addView(dialogSeek);
-        panel.addView(row(
-                btn("上一首", v -> playRelative(-1)),
-                btn("快退15秒", v -> seekBy(-15000)),
-                dialogPlay,
-                btn("快进30秒", v -> seekBy(30000)),
-                btn("下一首", v -> playRelative(1))
-        ));
-        panel.addView(row(
-                speedButton,
-                btn("循环模式", v -> cycleLoop()),
-                btn("A点", v -> setA()),
-                btn("B点", v -> setB()),
-                btn("书签", v -> showBookmarks())
-        ));
-        panel.addView(row(
-                btn("收藏", v -> addCurrentToFavorites()),
-                btn("随机", v -> playRandom()),
-                btn("清AB", v -> clearAb()),
-                btn("全屏", v -> enterVideoFullScreen()),
-                btn("回开头", v -> seekToStart())
-        ));
-
-        final Runnable[] updater = new Runnable[1];
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("正在播放")
-                .setView(panel)
-                .setNegativeButton("关闭", null)
-                .create();
-        updater[0] = new Runnable() {
-            @Override public void run() {
-                if (!dialog.isShowing()) return;
-                MediaEntry current = currentEntry();
-                if (current != null) {
-                    title.setText(current.title);
-                    subtitle.setText(current.folderName + " · " + ("video".equals(current.type) ? "视频" : "音频"));
-                    cover.setText("video".equals(current.type) ? "视频画面正在播放" : "耳朵在树洞里听见了声音");
-                    List<Bookmark> marks = loadBookmarks(current.uri);
-                    bookmarkInfo.setText("书签：" + marks.size() + " 个");
-                }
-                String ab = abEnabled && abA != C.TIME_UNSET && abB != C.TIME_UNSET
-                        ? "AB 循环：" + formatMs(abA) + " - " + formatMs(abB)
-                        : "AB 循环：未开启";
-                abInfo.setText(ab);
-                if (player != null) {
-                    long duration = player.getDuration();
-                    long position = player.getCurrentPosition();
-                    progressText.setText(formatMs(position) + " / " + formatMs(duration));
-                    if (!dragging[0] && duration > 0 && duration != C.TIME_UNSET) {
-                        dialogSeek.setProgress((int) Math.max(0, Math.min(1000, position * 1000L / duration)));
-                    }
-                    dialogPlay.setText(player.isPlaying() ? "暂停" : "播放");
-                    speedButton.setText(String.format(Locale.CHINA, "%.2fx", player.getPlaybackParameters().speed));
-                }
-                handler.postDelayed(this, 500);
-            }
-        };
-        dialog.setOnShowListener(d -> handler.post(updater[0]));
-        dialog.setOnDismissListener(d -> handler.removeCallbacks(updater[0]));
-        dialog.show();
-    }
-
-    private void dialogPlayText(View view) {
-        if (view instanceof Button && player != null) {
-            ((Button) view).setText(player.isPlaying() ? "暂停" : "播放");
-        }
+        startActivity(new Intent(this, NowPlayingActivity.class));
     }
 
     private void showSpeedDialog() {
@@ -1704,41 +1633,63 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private List<TimedTextLine> parseTimedText(String raw) {
         List<TimedTextLine> lines = new ArrayList<>();
-        String[] rows = raw.replace("\r\n", "\n").replace('\r', '\n').split("\n");
-        StringBuilder srtText = new StringBuilder();
-        long srtStart = C.TIME_UNSET;
+        if (raw == null || raw.isEmpty()) return lines;
+        // 去掉 UTF-8 BOM，兼容 Windows 记事本导出的 LRC
+        String text = raw.charAt(0) == '\uFEFF' ? raw.substring(1) : raw;
+        String[] rows = text.replace("\r\n", "\n").replace('\r', '\n').split("\n");
+        StringBuilder cueText = new StringBuilder();
+        long cueStart = C.TIME_UNSET;
         for (String row : rows) {
             String line = row.trim();
             if (line.isEmpty()) {
-                if (srtStart != C.TIME_UNSET && srtText.length() > 0) {
-                    lines.add(new TimedTextLine(srtStart, srtText.toString().trim()));
-                }
-                srtStart = C.TIME_UNSET;
-                srtText.setLength(0);
+                flushTimedCue(lines, cueStart, cueText);
+                cueStart = C.TIME_UNSET;
+                cueText.setLength(0);
                 continue;
             }
-            int bracket = line.indexOf(']');
-            if (line.startsWith("[") && bracket > 0) {
-                long ms = parseLrcTime(line.substring(1, bracket));
-                if (ms != C.TIME_UNSET) {
-                    lines.add(new TimedTextLine(ms, line.substring(bracket + 1).trim()));
-                    continue;
+            // WEBVTT 头、NOTE/STYLE 块、SRT 序号行都忽略
+            if (line.startsWith("WEBVTT") || line.startsWith("NOTE") || line.startsWith("STYLE")
+                    || line.matches("\\d+")) {
+                continue;
+            }
+            if (line.startsWith("[")) {
+                // LRC 一行可带多个时间标签：[00:12.00][01:05.00]同一句歌词
+                List<Long> stamps = new ArrayList<>();
+                int cursor = 0;
+                while (cursor < line.length() && line.charAt(cursor) == '[') {
+                    int close = line.indexOf(']', cursor);
+                    if (close < 0) break;
+                    long ms = parseLrcTime(line.substring(cursor + 1, close));
+                    if (ms == C.TIME_UNSET) break; // [ar:xxx] 之类的元数据标签
+                    stamps.add(ms);
+                    cursor = close + 1;
                 }
+                if (!stamps.isEmpty()) {
+                    String lyric = line.substring(cursor).trim();
+                    for (Long ms : stamps) lines.add(new TimedTextLine(ms, lyric));
+                }
+                continue; // 元数据标签或无时间轴，不作为字幕内容
             }
             if (line.contains("-->")) {
-                String start = line.substring(0, line.indexOf("-->")).trim();
-                srtStart = parseSrtTime(start);
-                srtText.setLength(0);
+                flushTimedCue(lines, cueStart, cueText);
+                cueStart = parseSrtTime(line.substring(0, line.indexOf("-->")).trim());
+                cueText.setLength(0);
                 continue;
             }
-            if (srtStart != C.TIME_UNSET && !line.matches("\\d+")) {
-                if (srtText.length() > 0) srtText.append(' ');
-                srtText.append(line);
+            if (cueStart != C.TIME_UNSET) {
+                if (cueText.length() > 0) cueText.append(' ');
+                cueText.append(stripHtml(line)); // 去掉 SRT 里的 <i>/<b> 标签
             }
         }
-        if (srtStart != C.TIME_UNSET && srtText.length() > 0) lines.add(new TimedTextLine(srtStart, srtText.toString().trim()));
+        flushTimedCue(lines, cueStart, cueText);
         Collections.sort(lines, (a, b) -> Long.compare(a.timeMs, b.timeMs));
         return lines;
+    }
+
+    private void flushTimedCue(List<TimedTextLine> lines, long start, StringBuilder text) {
+        if (start != C.TIME_UNSET && text.length() > 0) {
+            lines.add(new TimedTextLine(start, text.toString().trim()));
+        }
     }
 
     private long parseLrcTime(String raw) {
@@ -1755,11 +1706,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private long parseSrtTime(String raw) {
         try {
-            String[] parts = raw.replace(',', '.').split(":");
-            if (parts.length < 3) return C.TIME_UNSET;
-            long hours = Long.parseLong(parts[0]);
-            long minutes = Long.parseLong(parts[1]);
-            float seconds = Float.parseFloat(parts[2]);
+            String[] parts = raw.replace(',', '.').trim().split(":");
+            long hours = 0;
+            long minutes;
+            float seconds;
+            if (parts.length == 3) {
+                hours = Long.parseLong(parts[0]);
+                minutes = Long.parseLong(parts[1]);
+                seconds = Float.parseFloat(parts[2]);
+            } else if (parts.length == 2) {
+                // WebVTT 常见写法 00:12.340（省略小时）
+                minutes = Long.parseLong(parts[0]);
+                seconds = Float.parseFloat(parts[1]);
+            } else {
+                return C.TIME_UNSET;
+            }
             return hours * 3_600_000L + minutes * 60_000L + Math.round(seconds * 1000f);
         } catch (RuntimeException ex) {
             return C.TIME_UNSET;
@@ -1799,15 +1760,34 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
         if (timedTextLines.isEmpty()) {
             String sidecar = prefs.getString("timedSidecar:" + mediaUri, dbGet("timedSidecar:" + mediaUri, ""));
+            if (sidecar.isEmpty()) sidecar = autoMatchSidecar(mediaUri);
             if (!sidecar.isEmpty()) {
                 List<TimedTextLine> parsed = parseTimedText(readText(Uri.parse(sidecar)));
                 if (!parsed.isEmpty()) {
                     timedTextLines.addAll(parsed);
                     saveTimedText(mediaUri, timedTextLines);
+                    prefs.edit().putString("timedSidecar:" + mediaUri, sidecar).apply();
+                    dbPut("timedSidecar:" + mediaUri, sidecar);
                 }
             }
         }
         updateTimedTextUi(player == null ? 0 : player.getCurrentPosition());
+    }
+
+    /** 扫描文件夹时已记录同名候选，这里自动绑定，省去每次手动导入。 */
+    private String autoMatchSidecar(String mediaUri) {
+        String raw = prefs.getString("timedCandidates:" + mediaUri, dbGet("timedCandidates:" + mediaUri, "[]"));
+        try {
+            JSONArray array = new JSONArray(raw);
+            for (int i = 0; i < array.length(); i++) {
+                JSONObject obj = array.getJSONObject(i);
+                String name = obj.optString("name", "");
+                String uri = obj.optString("uri", "");
+                if (name.startsWith("推荐") && !uri.isEmpty()) return uri;
+            }
+        } catch (JSONException ignored) {
+        }
+        return "";
     }
 
     private void clearTimedText() {
@@ -1829,14 +1809,39 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         status("已清除当前媒体歌词/字幕");
     }
 
-    private String currentTimedText(long positionMs) {
-        if (timedTextLines.isEmpty()) return "";
-        TimedTextLine current = null;
-        long adjusted = positionMs - timedTextOffsetMs;
-        for (TimedTextLine line : timedTextLines) {
-            if (line.timeMs <= adjusted + 250) current = line; else break;
+    /** 二分查找当前行：长篇 LRC/SRT 上万行时，避免每 500ms 全表扫描。 */
+    private int timedTextIndex(long positionMs) {
+        if (timedTextLines.isEmpty()) return -1;
+        long adjusted = positionMs - timedTextOffsetMs + 250;
+        int lo = 0;
+        int hi = timedTextLines.size() - 1;
+        int found = -1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (timedTextLines.get(mid).timeMs <= adjusted) {
+                found = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
         }
-        return current == null ? "" : current.text;
+        return found;
+    }
+
+    private String currentTimedText(long positionMs) {
+        int index = timedTextIndex(positionMs);
+        return index < 0 ? "" : timedTextLines.get(index).text;
+    }
+
+    /** 上一行 / 当前行 / 下一行，跟唱和听书时更容易跟上。 */
+    private String timedTextWindow(long positionMs) {
+        int index = timedTextIndex(positionMs);
+        if (index < 0) return "";
+        StringBuilder builder = new StringBuilder();
+        if (index > 0) builder.append(timedTextLines.get(index - 1).text).append('\n');
+        builder.append("▶ ").append(timedTextLines.get(index).text);
+        if (index + 1 < timedTextLines.size()) builder.append('\n').append(timedTextLines.get(index + 1).text);
+        return builder.toString();
     }
 
     private void updateTimedTextUi(long positionMs) {
@@ -1845,6 +1850,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             videoSubtitleLabel.setText(line);
             videoSubtitleLabel.setTextSize(prefs.getInt("subtitleTextSize", 14));
             videoSubtitleLabel.setTextColor(prefs.getBoolean("lyricHighlight", true) ? 0xFFFFD36A : COLOR_TEXT);
+            videoSubtitleLabel.setShadowLayer(4f, 0f, 1f, 0xFF000000);
+            videoSubtitleLabel.setBackgroundColor(line.isEmpty() ? 0x00000000 : 0x66000000);
+            videoSubtitleLabel.setPadding(dp(10), dp(6), dp(10), dp(6));
         }
     }
 
@@ -2239,7 +2247,18 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void handleEnded() {
         if (player == null) return;
-        saveCurrentPositionAsZero();
+        // 队列重建 / 恢复过程产生的 ENDED 不是自然播完，必须忽略，否则会把记忆位置清成 0
+        if (SystemClock.elapsedRealtime() - queueRebuiltAt < 1500) return;
+        long duration = player.getDuration();
+        long position = player.getCurrentPosition();
+        boolean naturalEnd = duration > 0 && duration != C.TIME_UNSET && position >= duration - 1500;
+        if (naturalEnd && currentEntry() != null && !suppressPositionSave) {
+            // 确实听到结尾：下次再打开这个文件从头开始
+            saveCurrentPositionAsZero();
+        } else {
+            // 异常结束时保留最后有效位置，绝不写 0
+            saveCurrentPosition();
+        }
         if (prefs.getBoolean("stopAfterCurrent", false)) {
             prefs.edit().putBoolean("stopAfterCurrent", false).apply();
             player.pause();
@@ -2259,10 +2278,42 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         @Override public void run() {
             updatePositionUi();
             updateVisualStage();
-            updateBackgroundStatus();
+            // 背景状态 2 秒刷一次即可：原先每 500ms 读 prefs + 解析 JSON，是后台耗电大户
+            if (++tickCount % 4 == 0) updateBackgroundStatus();
+            maybeAutoSavePosition();
+            showPauseReasonIfAny();
             handler.postDelayed(this, 500);
         }
     };
+
+    /** 后台听书时每 5 秒落盘一次进度，服务即使被系统回收也不会丢失位置。 */
+    private void maybeAutoSavePosition() {
+        if (player == null || !player.isPlaying() || suppressPositionSave) return;
+        MediaEntry entry = currentEntry();
+        if (entry == null) return;
+        long position = player.getCurrentPosition();
+        if (position <= 0) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastAutoSaveAt < 5000) return;
+        lastAutoSaveAt = now;
+        prefs.edit()
+                .putLong("pos:" + entry.uri, position)
+                .putLong("posSavedAt:" + entry.uri, System.currentTimeMillis())
+                .apply();
+        dbPut("pos:" + entry.uri, String.valueOf(position));
+    }
+
+    /** 把"摘耳机 / 来电 / 焦点被抢"的暂停原因提示给用户，明确需要手动点播放。 */
+    private void showPauseReasonIfAny() {
+        long at = prefs.getLong("lastPauseReasonAt", 0);
+        if (at <= shownPauseReasonAt) return;
+        shownPauseReasonAt = at;
+        String reason = prefs.getString("lastPauseReason", "");
+        if (!reason.isEmpty()) {
+            status(reason + "，已暂停，点播放继续");
+        }
+        // 保留原因供通知文案使用，直到用户真正点播放再清除
+    }
 
     private void updateVisualStage() {
         if (visualView == null) return;
@@ -2287,7 +2338,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
         if (entry == null) return "扫描文件夹或打开文件后，这里会显示封面、歌词或朗读文字。";
         if ("audio".equals(entry.type)) {
-            String timed = currentTimedText(player == null ? 0 : player.getCurrentPosition());
+            String timed = timedTextWindow(player == null ? 0 : player.getCurrentPosition());
             if (!timed.isEmpty()) return timed;
             return "暂无歌词\n" + playbackModeName() + " · " + (player == null ? "1.00x" : String.format(Locale.CHINA, "%.2fx", player.getPlaybackParameters().speed));
         }
@@ -2381,7 +2432,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         String text = "播放模式：" + playbackModeName();
         if (prefs.getBoolean("stopAfterCurrent", false)) text += " | 播完当前停止";
         if (prefs.getBoolean("stopAfterList", false)) text += " | 播完列表停止";
-        String ab = abEnabled && abA != C.TIME_UNSET && abB != C.TIME_UNSET ? " | AB：" + formatMs(abA) + "-" + formatMs(abB) : "";
+        String ab = "";
+        if (abA != C.TIME_UNSET && abB != C.TIME_UNSET) {
+            ab = " | AB：" + formatMs(abA) + "-" + formatMs(abB) + (abEnabled ? "（循环中）" : "（未启用）");
+        }
         loopLabel.setText(text + ab);
     }
 
@@ -2409,6 +2463,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         abA = player.getCurrentPosition();
         abEnabled = abB != C.TIME_UNSET && abB > abA;
         persistAb();
+        syncAbTicker();
         updateLoopLabel();
         status("A 点：" + formatMs(abA));
     }
@@ -2418,16 +2473,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         abB = player.getCurrentPosition();
         abEnabled = abA != C.TIME_UNSET && abB > abA;
         persistAb();
+        syncAbTicker();
         updateLoopLabel();
         status("B 点：" + formatMs(abB));
     }
 
     private void clearAb() {
         MediaEntry entry = currentEntry();
-        if (entry != null) prefs.edit().remove("ab:" + entry.uri).apply();
+        if (entry != null) {
+            prefs.edit().remove("ab:" + entry.uri).apply();
+            dbRemove("ab:" + entry.uri);
+        }
         abA = C.TIME_UNSET;
         abB = C.TIME_UNSET;
         abEnabled = false;
+        syncAbTicker();
         updateLoopLabel();
     }
 
@@ -2451,6 +2511,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
         abEnabled = abA != C.TIME_UNSET && abB != C.TIME_UNSET && abB > abA;
         persistAb();
+        syncAbTicker();
         updateLoopLabel();
     }
 
@@ -2528,6 +2589,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             return;
         }
         prefs.edit().remove("pos:" + entry.uri).apply();
+        // 双写镜像要一起清，否则 prefs 清空后会从数据库读回旧值
+        dbRemove("pos:" + entry.uri);
         if (player != null) player.seekTo(0);
         updatePositionUi();
         status("已清除当前媒体的播放位置");
@@ -2568,6 +2631,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if (player == null) return;
         abA = C.TIME_UNSET;
         abB = C.TIME_UNSET;
+        // 记住 A/B 点，但绝不自动启用：避免长期遗忘的 AB 循环造成"播放一会儿就跳回开头"
         abEnabled = false;
         String raw = prefs.getString("ab:" + uri, "");
         if (!raw.isEmpty()) {
@@ -2575,12 +2639,34 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 JSONObject obj = new JSONObject(raw);
                 abA = obj.optLong("a", C.TIME_UNSET);
                 abB = obj.optLong("b", C.TIME_UNSET);
-                abEnabled = obj.optBoolean("enabled", false) && abB > abA;
-                if (abEnabled) player.seekTo(abA);
+                if (abB <= abA) {
+                    abA = C.TIME_UNSET;
+                    abB = C.TIME_UNSET;
+                }
             } catch (JSONException ignored) {
             }
         }
+        syncAbTicker();
         updateLoopLabel();
+    }
+
+    /** AB 轮询只在开启时运行，避免 250ms 常驻空转。 */
+    private void syncAbTicker() {
+        handler.removeCallbacks(abLoopTicker);
+        if (abEnabled) handler.post(abLoopTicker);
+    }
+
+    private void toggleAb() {
+        if (abA == C.TIME_UNSET || abB == C.TIME_UNSET || abB <= abA) {
+            status("请先设置 A 点和 B 点，再开启 AB 循环");
+            return;
+        }
+        abEnabled = !abEnabled;
+        persistAb();
+        syncAbTicker();
+        updateLoopLabel();
+        if (abEnabled && player != null) player.seekTo(abA);
+        status(abEnabled ? "AB 循环已开启" : "AB 循环已关闭");
     }
 
     private void persistAb() {
@@ -3114,13 +3200,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void restoreLastSession() {
         if (player == null) return;
-        long sleepAt = prefs.getLong("sleepAt", 0);
-        if (sleepAt > System.currentTimeMillis()) {
-            handler.postDelayed(sleepTimer, sleepAt - System.currentTimeMillis());
-            status("已恢复睡眠定时");
-        } else if (sleepAt > 0) {
-            prefs.edit().remove("sleepAt").apply();
-        }
+        // 睡眠定时只在本次会话有效，不跨启动恢复，避免遗忘的定时造成"时间长了自己停止"
+        if (prefs.getLong("sleepAt", 0) > 0) prefs.edit().remove("sleepAt").apply();
+        handler.removeCallbacks(sleepTimer);
 
         List<MediaEntry> items = playlists.get(selectedPlaylist);
         if ((items == null || items.isEmpty()) && playlists.containsKey(PLAYLIST_ALL)) {
@@ -3129,8 +3211,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         }
         if (items == null || items.isEmpty()) return;
 
-        applyPlaybackMode();
-        setQueue(items, false);
+        queue.clear();
+        queue.addAll(new ArrayList<>(items));
         String currentUri = prefs.getString("currentUri", dbGet("currentUri", ""));
         int restoredIndex = -1;
         for (int i = 0; i < queue.size(); i++) {
@@ -3143,20 +3225,25 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         currentIndex = restoredIndex;
         MediaEntry entry = queue.get(currentIndex);
+        if ("video".equals(entry.type)) prepareLayoutForEntry(entry);
         nowPlaying.setText(entry.title + "\n" + entry.folderName);
-        syncPlayerQueue();
-        player.seekTo(currentIndex, 0);
-        long last = getStoredLong("pos:" + entry.uri, 0);
-        if (last > 0) player.seekTo(last);
+        long last = Math.max(0, getStoredLong("pos:" + entry.uri, 0));
+        // 只重建一次队列，并把记忆位置直接带进去；不再先 seekTo(0) 再 seekTo(last)
+        syncPlayerQueue(last);
+        player.seekTo(currentIndex, last);
         float folderSpeed = prefs.getFloat(speedKey(entry), prefs.getFloat("lastSpeed", 1f));
         speedBar.setProgress(Math.round((folderSpeed - 0.25f) * 100f));
         setSpeed(folderSpeed, false);
         loadAb(entry.uri);
+        loadTimedText(entry.uri);
         applyPlaybackMode();
         refreshMediaList();
+        updateVideoControlVisibility();
         updatePositionUi();
+        // 恢复后保持暂停，由用户手动点播放才继续
+        player.pause();
         updatePlayPauseButton();
-        status("已恢复上次播放：" + entry.title);
+        status("已恢复上次播放（" + formatMs(last) + "），点播放继续：" + entry.title);
     }
 
     private boolean restoreRunningPlayback() {
@@ -4871,7 +4958,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void saveCurrentPositionAsZero() {
         MediaEntry entry = currentEntry();
-        if (entry != null) {
+        if (entry != null && !suppressPositionSave) {
             prefs.edit().putLong("pos:" + entry.uri, 0).apply();
             dbPut("pos:" + entry.uri, "0");
         }
@@ -4929,32 +5016,15 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private LinearLayout row(View... views) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
-        for (View view : views) {
-            row.addView(view, new LinearLayout.LayoutParams(0, dp(42), 1f));
-        }
-        return row;
+        return UiKit.row(this, views);
     }
 
     private Button btn(String text, View.OnClickListener listener) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setAllCaps(false);
-        button.setTextColor(COLOR_TEXT);
-        button.setBackgroundColor(COLOR_PANEL);
-        button.setOnClickListener(listener);
-        return button;
+        return UiKit.button(this, text, listener);
     }
 
     private TextView label(String text, int sp, int color) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextSize(sp);
-        label.setTextColor(color);
-        label.setPadding(0, dp(4), 0, dp(4));
-        return label;
+        return UiKit.label(this, text, sp, color);
     }
 
     private LinearLayout.LayoutParams fullWrap() {
@@ -4977,7 +5047,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return UiKit.dp(this, value);
     }
 
     private String formatMs(long ms) {
@@ -4999,6 +5069,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         private String body = "扫描文件夹或打开文件后，这里会显示封面、歌词或朗读文字。";
         private boolean active;
         private boolean reading;
+        /** 朗读文字和歌词都带 ▶ 标记，需要高亮当前行并自动滚动到可见范围。 */
+        private boolean focusMode;
         private float effect = 0.6f;
         private final long startedAt = System.currentTimeMillis();
 
@@ -5013,6 +5085,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             body = nextBody == null || nextBody.trim().isEmpty() ? "暂无歌词" : nextBody;
             active = nextActive;
             reading = nextReading;
+            focusMode = nextReading || body.contains("▶");
             effect = Math.max(0.25f, Math.min(2f, nextEffect));
             invalidate();
         }
@@ -5109,7 +5182,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             List<String> lines = wrapText(body.replace("\r", ""), textPaint, right - left);
             int maxLines = Math.max(3, (height - dp(104)) / dp(24));
             int focusLine = 0;
-            if (reading) {
+            if (focusMode) {
                 for (int i = 0; i < lines.size(); i++) {
                     if (lines.get(i).contains("▶") || lines.get(i).contains("【")) {
                         focusLine = i;
@@ -5117,13 +5190,13 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                     }
                 }
             }
-            int offset = reading && lines.size() > maxLines ? Math.max(0, Math.min(lines.size() - maxLines, focusLine - 1)) : 0;
+            int offset = focusMode && lines.size() > maxLines ? Math.max(0, Math.min(lines.size() - maxLines, focusLine - 1)) : 0;
             float y = dp(86);
             for (int i = 0; i < Math.min(maxLines, lines.size()); i++) {
                 String line = lines.get(offset + i);
-                boolean current = reading && (line.contains("▶") || line.contains("【"));
+                boolean current = focusMode && (line.contains("▶") || line.contains("【"));
                 textPaint.setTypeface(current ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-                textPaint.setColor(current ? 0xFFFFF4E2 : reading ? 0xCCFFD36A : 0xFFEAD9BE);
+                textPaint.setColor(current ? 0xFFFFF4E2 : focusMode ? 0xCCFFD36A : 0xFFEAD9BE);
                 if (current) {
                     paint.setStyle(Paint.Style.FILL);
                     paint.setColor(0x55FFB451);

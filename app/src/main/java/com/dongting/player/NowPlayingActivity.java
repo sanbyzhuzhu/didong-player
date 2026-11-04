@@ -42,11 +42,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class NowPlayingActivity extends AppCompatActivity {
-    private static final int COLOR_BG = 0xFF160E09;
-    private static final int COLOR_PANEL = 0xFF26170E;
-    private static final int COLOR_TEXT = 0xFFFFF4E2;
-    private static final int COLOR_SUBTLE = 0xFFD7B98E;
-    private static final int COLOR_ACCENT = 0xFFFFB451;
+    private static final int COLOR_BG = UiKit.BG;
+    private static final int COLOR_PANEL = UiKit.PANEL;
+    private static final int COLOR_TEXT = UiKit.TEXT;
+    private static final int COLOR_SUBTLE = UiKit.SUBTLE;
+    private static final int COLOR_ACCENT = UiKit.ACCENT;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PlaybackService playbackService;
@@ -135,9 +135,17 @@ public class NowPlayingActivity extends AppCompatActivity {
                 return;
             }
             if (player == null) return;
-            if (player.isPlaying()) player.pause(); else player.play();
+            if (player.isPlaying()) {
+                player.pause();
+                savePosition();
+            } else {
+                // 用户显式点播放才继续，清掉"摘耳机/来电"的暂停标记
+                prefs.edit().remove("lastPauseReason").apply();
+                player.play();
+            }
             updateUi();
         });
+        UiKit.makePrimary(playButton);
         speed = label("1.00x", 14, COLOR_SUBTLE);
         speed.setGravity(Gravity.CENTER);
         mode = label("顺序播放", 14, COLOR_SUBTLE);
@@ -683,32 +691,18 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private LinearLayout row(android.view.View... views) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        for (android.view.View view : views) row.addView(view, new LinearLayout.LayoutParams(0, dp(44), 1f));
-        return row;
+        return UiKit.row(this, views);
     }
 
     private Button btn(String text, android.view.View.OnClickListener listener) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setAllCaps(false);
-        button.setTextColor(COLOR_TEXT);
-        button.setBackgroundColor(COLOR_PANEL);
-        button.setOnClickListener(listener);
-        return button;
+        return UiKit.button(this, text, listener);
     }
 
     private TextView label(String text, int sp, int color) {
-        TextView view = new TextView(this);
-        view.setText(text);
-        view.setTextSize(sp);
-        view.setTextColor(color);
-        view.setPadding(0, dp(6), 0, dp(6));
-        return view;
+        return UiKit.label(this, text, sp, color);
     }
 
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return UiKit.dp(this, value);
     }
 }

@@ -5,14 +5,20 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.database.Cursor;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.OpenableColumns;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
@@ -77,6 +83,30 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
     private int consecutiveErrors = 0;
     private boolean ready = false;
     private boolean paused = false;
+    private AudioManager audioManager;
+    private AudioFocusRequest focusRequest;
+    private boolean focusRequested = false;
+    private boolean noisyReceiverRegistered = false;
+    private PowerManager.WakeLock wakeLock;
+
+    /** 来电、其它应用占用音频时暂停朗读，不自动恢复。 */
+    private final AudioManager.OnAudioFocusChangeListener focusListener = focusChange -> {
+        if (focusChange == AudioManager.AUDIOFOCUS_LOSS
+                || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+            pauseForExternal("来电或音频被占用，朗读已暂停");
+        }
+    };
+
+    /** 拔掉耳机 / 蓝牙断连时暂停朗读，不自动恢复。 */
+    private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
+                pauseForExternal("耳机已断开，朗读已暂停");
+            }
+        }
+    };
 
     @Override
     public void onCreate() {
@@ -84,13 +114,16 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         serviceRunning = true;
         servicePaused = true;
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         createNotificationChannel();
+        registerNoisyReceiver();
         AudioAttributes attrs = new AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .setUsage(C.USAGE_MEDIA)
                 .build();
         bgPlayer = new ExoPlayer.Builder(this).setAudioAttributes(attrs, false).build();
-        externalTtsPlayer = new ExoPlayer.Builder(this).setAudioAttributes(attrs, true).build();
+        // 焦点由本服务统一管理，避免 ExoPlayer 在焦点恢复时自动续播
+        externalTtsPlayer = new ExoPlayer.Builder(this).setAudioAttributes(attrs, false).build();
         externalTtsPlayer.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int playbackState) {
                 if (playbackState == Player.STATE_READY) {
@@ -127,6 +160,88 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         createTtsFromSystemDefault();
     }
 
+    private void registerNoisyReceiver() {
+        IntentFilter filter = new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(noisyReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(noisyReceiver, filter);
+            }
+            noisyReceiverRegistered = true;
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private void requestReadingFocus() {
+        if (audioManager == null) return;
+        try {
+            if (focusRequest == null) {
+                android.media.AudioAttributes platformAttrs = new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build();
+                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(platformAttrs)
+                        .setOnAudioFocusChangeListener(focusListener, new Handler(Looper.getMainLooper()))
+                        .setAcceptsDelayedFocusGain(false)
+                        .build();
+            }
+            focusRequested = audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+            if (!focusRequested) pauseReading();
+        } catch (RuntimeException ignored) {
+            focusRequested = false;
+        }
+    }
+
+    private void abandonReadingFocus() {
+        if (audioManager == null || focusRequest == null || !focusRequested) return;
+        try {
+            audioManager.abandonAudioFocusRequest(focusRequest);
+        } catch (RuntimeException ignored) {
+        }
+        focusRequested = false;
+    }
+
+    private void pauseForExternal(String reason) {
+        pauseReading();
+        markPauseReason(reason);
+        updateNotification(false);
+    }
+
+    private void markPauseReason(String reason) {
+        prefs.edit()
+                .putString("lastPauseReason", reason)
+                .putLong("lastPauseReasonAt", System.currentTimeMillis())
+                .apply();
+    }
+
+    /** 后台朗读息屏后保持 CPU 唤醒，避免长文本读一半断流。 */
+    private void acquireWakeLock() {
+        if (wakeLock == null) {
+            PowerManager manager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (manager != null) {
+                wakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "dongting:TextReader");
+                wakeLock.setReferenceCounted(false);
+            }
+        }
+        if (wakeLock != null && !wakeLock.isHeld()) {
+            try {
+                wakeLock.acquire(10 * 60 * 1000L);
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private void releaseWakeLock() {
+        if (wakeLock != null && wakeLock.isHeld()) {
+            try {
+                wakeLock.release();
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
     private void createTtsFromSystemDefault() {
         String engine = currentSystemTtsEngine();
         if (engine.isEmpty()) {
@@ -149,6 +264,10 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (ACTION_START.equals(action)) {
+            // 用户主动开始朗读：解除暂停态，清掉"摘耳机/来电"的遗留标记
+            paused = false;
+            servicePaused = false;
+            prefs.edit().remove("lastPauseReason").apply();
             String uri = intent.getStringExtra(EXTRA_TEXT_URI);
             String content = intent.getStringExtra(EXTRA_TEXT_CONTENT);
             if (content != null && !content.trim().isEmpty()) {
@@ -177,6 +296,11 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         } else if (ACTION_RESTART.equals(action)) {
             currentChunk = 0;
             if (!textUri.isEmpty()) prefs.edit().putInt("ttsChunk:" + textUri, 0).apply();
+            // 从通知栏点"从头读"即使用户原先暂停，也应开始朗读
+            paused = false;
+            servicePaused = false;
+            prefs.edit().remove("lastPauseReason").apply();
+            updateNotification(true);
             speakCurrent();
         } else if (ACTION_SEEK_CHUNK.equals(action)) {
             seekChunk(intent.getIntExtra(EXTRA_CHUNK_INDEX, currentChunk));
@@ -244,6 +368,16 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
     public void onDestroy() {
         serviceRunning = false;
         servicePaused = true;
+        if (!textUri.isEmpty()) prefs.edit().putInt("ttsChunk:" + textUri, currentChunk).apply();
+        if (noisyReceiverRegistered) {
+            try {
+                unregisterReceiver(noisyReceiver);
+            } catch (RuntimeException ignored) {
+            }
+            noisyReceiverRegistered = false;
+        }
+        abandonReadingFocus();
+        releaseWakeLock();
         if (tts != null) {
             tts.stop();
             tts.shutdown();
@@ -280,7 +414,10 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
 
     private void speakCurrent() {
         if (chunks.isEmpty()) return;
+        if (paused) return; // 外部暂停后，只有用户显式点播放才会重新进入这里
         if (!useExternalTts() && (!ready || tts == null)) return;
+        requestReadingFocus();
+        acquireWakeLock();
         if (currentChunk >= chunks.size()) {
             if (!textUri.isEmpty()) prefs.edit().putInt("ttsChunk:" + textUri, 0).apply();
             if (playNextTextBook()) return;
@@ -425,13 +562,18 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
 
     private void toggle() {
         if (paused) {
+            // 用户显式点播放：解除外部暂停标记，恢复前台通知与唤醒锁
+            paused = false;
+            servicePaused = false;
+            prefs.edit().remove("lastPauseReason").apply();
+            updateNotification(true);
             if (useExternalTts() && externalTtsPlayer != null && externalTtsPlayer.getMediaItemCount() > 0) {
-                paused = false;
-                servicePaused = false;
                 startBackgroundMusic();
-                updateNotification(true);
+                requestReadingFocus();
+                acquireWakeLock();
                 externalTtsPlayer.play();
             } else {
+                // 原来这里没有清 paused，系统 TTS 读完一段就会停；一并修复
                 speakCurrent();
             }
         } else {
@@ -455,6 +597,8 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
                     .apply();
         }
         paused = false;
+        servicePaused = false;
+        updateNotification(true);
         speakCurrent();
     }
 
@@ -464,6 +608,8 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         if (tts != null) tts.stop();
         if (externalTtsPlayer != null) externalTtsPlayer.pause();
         if (bgPlayer != null) bgPlayer.pause();
+        abandonReadingFocus();
+        releaseWakeLock();
         if (!textUri.isEmpty()) prefs.edit().putInt("ttsChunk:" + textUri, currentChunk).apply();
         updateNotification(false);
     }
@@ -474,6 +620,9 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         if (tts != null) tts.stop();
         if (externalTtsPlayer != null) externalTtsPlayer.stop();
         if (bgPlayer != null) bgPlayer.pause();
+        abandonReadingFocus();
+        releaseWakeLock();
+        if (!textUri.isEmpty()) prefs.edit().putInt("ttsChunk:" + textUri, currentChunk).apply();
         stopForeground(STOP_FOREGROUND_REMOVE);
         stopSelf();
     }
@@ -568,12 +717,10 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
 
     private void updateNotification(boolean reading) {
         Notification notification = buildNotification(reading);
-        if (reading) {
+        // 暂停时同样保持前台，避免后台朗读服务被系统回收
+        try {
             startForeground(NOTIFICATION_ID, notification);
-        } else {
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.notify(NOTIFICATION_ID, notification);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_DETACH);
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -583,9 +730,14 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this, 30, openIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         String progress = chunks.isEmpty() ? "准备朗读" : "第 " + Math.min(currentChunk + 1, chunks.size()) + "/" + chunks.size() + " 段";
+        String state = reading ? "正在朗读 · " : "已暂停 · 点继续 · ";
+        if (!reading) {
+            String reason = prefs.getString("lastPauseReason", "");
+            if (!reason.isEmpty()) state = reason + " · 点继续 · ";
+        }
         Notification.Builder builder = new Notification.Builder(this)
                 .setContentTitle(title)
-                .setContentText((reading ? "正在朗读 · " : "已暂停 · ") + progress)
+                .setContentText(state + progress)
                 .setSmallIcon(R.drawable.ic_stat_dongting)
                 .setContentIntent(contentIntent)
                 .setOngoing(reading)

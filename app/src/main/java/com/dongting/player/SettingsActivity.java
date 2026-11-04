@@ -29,11 +29,11 @@ import java.net.URL;
 
 public class SettingsActivity extends AppCompatActivity {
     private static final String PREFS = "dongting_player";
-    private static final int COLOR_BG = 0xFF160E09;
-    private static final int COLOR_PANEL = 0xFF26170E;
-    private static final int COLOR_TEXT = 0xFFFFF4E2;
-    private static final int COLOR_SUBTLE = 0xFFD7B98E;
-    private static final int COLOR_ACCENT = 0xFFFFB451;
+    private static final int COLOR_BG = UiKit.BG;
+    private static final int COLOR_PANEL = UiKit.PANEL;
+    private static final int COLOR_TEXT = UiKit.TEXT;
+    private static final int COLOR_SUBTLE = UiKit.SUBTLE;
+    private static final int COLOR_ACCENT = UiKit.ACCENT;
 
     private SharedPreferences prefs;
 
@@ -66,7 +66,9 @@ public class SettingsActivity extends AppCompatActivity {
                 btn("清除当前播放记忆", v -> {
                     prefs.edit().remove("currentUri").remove("currentIndex").apply();
                     toast("已清除当前播放记忆");
-                }));
+                }),
+                btn("后台播放保护", v -> openBatteryOptimizationSettings()),
+                label("摘掉耳机、来电或其它应用占用音频时会自动暂停，需手动点播放才继续；播放进度每 5 秒自动保存。若后台仍被系统杀掉，请把本应用设为「不优化电池」。", 13, COLOR_SUBTLE));
 
         addSection(root, "音效设置",
                 slider("播放音量", "volume", 100, 100),
@@ -390,7 +392,16 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private int clearKeysWithPrefix(String prefix) {
-        return PlaylistStore.clearKeysWithPrefix(prefs, prefix);
+        int count = PlaylistStore.clearKeysWithPrefix(prefs, prefix);
+        // prefs 与 SQLite 镜像要同步清，否则读回时旧值会"复活"
+        DongtingDatabase db = new DongtingDatabase(this);
+        try {
+            db.removePrefix(prefix);
+        } catch (RuntimeException ignored) {
+        } finally {
+            db.close();
+        }
+        return count;
     }
 
     private void clearPlaylist(String name) {
@@ -404,23 +415,21 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
+    private void openBatteryOptimizationSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+            toast("请把地洞播放器设为「不优化」，后台听书更稳定");
+        } catch (Exception ignored) {
+            toast("当前系统没有提供电池优化设置入口");
+        }
+    }
+
     private Button btn(String text, View.OnClickListener listener) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setAllCaps(false);
-        button.setTextColor(COLOR_TEXT);
-        button.setBackgroundColor(COLOR_PANEL);
-        button.setOnClickListener(listener);
-        return button;
+        return UiKit.button(this, text, listener);
     }
 
     private TextView label(String text, int sp, int color) {
-        TextView label = new TextView(this);
-        label.setText(text);
-        label.setTextSize(sp);
-        label.setTextColor(color);
-        label.setPadding(0, dp(4), 0, dp(4));
-        return label;
+        return UiKit.label(this, text, sp, color);
     }
 
     private LinearLayout.LayoutParams fullParams() {
@@ -432,6 +441,6 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return UiKit.dp(this, value);
     }
 }

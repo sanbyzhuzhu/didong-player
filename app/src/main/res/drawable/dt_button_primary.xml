@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/dt_accent_pressed" />
+            <corners android:radius="10dp" />
+            <padding android:left="6dp" android:top="4dp" android:right="6dp" android:bottom="4dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/dt_accent" />
+            <corners android:radius="10dp" />
+            <padding android:left="6dp" android:top="4dp" android:right="6dp" android:bottom="4dp" />
+        </shape>
+    </item>
+</selector>

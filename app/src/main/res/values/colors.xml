@@ -1,7 +1,11 @@
 <resources>
-    <color name="dt_bg">#101418</color>
-    <color name="dt_panel">#1A2027</color>
-    <color name="dt_text">#F3F6F8</color>
-    <color name="dt_subtle">#AAB4BF</color>
-    <color name="dt_accent">#35C2A6</color>
+    <!-- 与 Java 侧 UiKit 保持一致的暖棕古典配色，避免系统栏与内容区割裂 -->
+    <color name="dt_bg">#160E09</color>
+    <color name="dt_panel">#26170E</color>
+    <color name="dt_panel_pressed">#3A2414</color>
+    <color name="dt_stroke">#4A3320</color>
+    <color name="dt_text">#FFF4E2</color>
+    <color name="dt_subtle">#D7B98E</color>
+    <color name="dt_accent">#FFB451</color>
+    <color name="dt_accent_pressed">#FF9E2C</color>
 </resources>
