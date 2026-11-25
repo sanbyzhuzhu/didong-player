@@ -1,6 +1,6 @@
 # 地洞播放器
 
-地洞播放器是一个【安卓】优先的本地音频、视频和电子书朗读播放器（约 8 MB）。它使用 AndroidX Media3/ExoPlayer 作为播放核心，面向听课、听书、整理本地影音和长文本朗读等场景。
+地洞播放器-一款无广告开源的本地离线播放器（非常小，才8M左右），安卓优先，面向听课、听书、整理本地影音和长文本朗读等场景，可以支持音频和视频的循环播放、AB点重复播放、倍速播放，支持电子书（TXT、epub,json,md,docx）文本的朗读，文本以字幕的形式一句一句跟读，让你实现边听边看的效果，朗读时可设置背景音乐，朗读用本地声音源，不需额外花钱。
 
 当前版本：`V0.0.21`
 
@@ -14,6 +14,14 @@
 
 ![输入图片说明](docs/promo/v0.0.20/release-features-1080x1440.png)
 ![输入图片说明](docs/promo/v0.0.20/01_cover_hero_1242x1660.png)
+
+<img width="1242" height="1660" alt="02_icon_evolution_1242x1660" src="https://github.com/user-attachments/assets/06cc9ca0-3958-4df7-a85a-eb998ec2e73a" />
+<img width="1242" height="1660" alt="01_cover_hero_1242x1660" src="https://github.com/user-attachments/assets/6e2cee2d-4ae9-415b-9f23-90203885290a" />
+
+<img width="1242" height="1660" alt="05_features_bento_1242x1660" src="https://github.com/user-attachments/assets/42a3ef32-fcd8-4109-bd74-0468fcc85214" />
+<img width="1242" height="1660" alt="04_five_themes_1242x1660" src="https://github.com/user-attachments/assets/b909dbcd-fc43-49bf-9529-7bbb3f4f8e93" />
+<img width="1242" height="1660" alt="03_reading_epub_txt_1242x1660" src="https://github.com/user-attachments/assets/62a2f8dc-cc67-4c62-895f-05abef9a18ec" />
+
 ## 功能特性
 
 - 扫描 SAF 文件夹，递归识别常见音频/视频格式。
@@ -42,7 +50,7 @@ Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验�
 本地本次双平台发布归档位于：
 
 ```text
-release/v0.0.21_静默更新与双平台同步/
+release/v0.0.21_静默更新完整发布/
 ```
 
 当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为浏览器原型，本次新增电子书解析针对 Android。
