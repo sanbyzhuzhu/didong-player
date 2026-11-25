@@ -12,10 +12,8 @@
 
 ## 界面预览
 
-| 主界面 | 播放页 | TXT 朗读 |
-| --- | --- | --- |
-| <img src="docs/images/home-screen.png" alt="地洞播放器主界面预览" width="240"> | <img src="docs/images/now-playing-screen.png" alt="地洞播放器播放页预览" width="240"> | <img src="docs/images/reader-screen.png" alt="地洞播放器 TXT 朗读预览" width="240"> |
-
+![输入图片说明](docs/promo/v0.0.20/release-features-1080x1440.png)
+![输入图片说明](docs/promo/v0.0.20/01_cover_hero_1242x1660.png)
 ## 功能特性
 
 - 扫描 SAF 文件夹，递归识别常见音频/视频格式。
@@ -44,7 +42,7 @@ Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验�
 本地本次双平台发布归档位于：
 
 ```text
-release/v0.0.21_设置页静默更新提醒/
+release/v0.0.21_静默更新与双平台同步/
 ```
 
 当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为浏览器原型，本次新增电子书解析针对 Android。
@@ -113,3 +111,4 @@ http://127.0.0.1:8774/forward
 2. 将 SharedPreferences/JSON 逐步迁移到 Room。
 3. 改进 Windows 桌面版本，评估 Kotlin Multiplatform、Compose Desktop 或 Flutter。
 4. 评估投屏能力，按设备能力接入 MediaRouter、Google Cast、DLNA 或 Miracast。
+这里输入代码
