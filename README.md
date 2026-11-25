@@ -8,14 +8,11 @@
 
 [GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.20)
 
-本版重点：EPUB 正文顺序与章节目录、Markdown / HTML / DOCX 纯文字朗读、逐句高亮跟随。更新细节见 [Changelog](CHANGELOG.md)，可转发素材见 [V0.0.20 宣发文案与配图](docs/promo/v0.0.20/宣发文案.md)。
+本版重点：EPUB 正文顺序与章节目录、Markdown / HTML / DOCX 纯文字朗读、逐句高亮跟随。 
 
 ## 界面预览
 
-| 主界面 | 播放页 | TXT 朗读 |
-| --- | --- | --- |
-| <img src="docs/images/home-screen.png" alt="地洞播放器主界面预览" width="240"> | <img src="docs/images/now-playing-screen.png" alt="地洞播放器播放页预览" width="240"> | <img src="docs/images/reader-screen.png" alt="地洞播放器 TXT 朗读预览" width="240"> |
-
+![输入图片说明](docs/promo/v0.0.20/release-features-1080x1440.png)
 ## 功能特性
 
 - 扫描 SAF 文件夹，递归识别常见音频/视频格式。
