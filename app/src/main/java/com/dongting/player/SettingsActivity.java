@@ -31,14 +31,25 @@ public class SettingsActivity extends AppCompatActivity {
     private static final String PREFS = "dongting_player";
 
     private SharedPreferences prefs;
+    private SharedPreferences updatePrefs;
+    private View updateDot;
+    private TextView updateTitle;
+    private TextView updateStatus;
+    private Button updateCheckButton;
+    private final SharedPreferences.OnSharedPreferenceChangeListener updateListener = (preferences, key) ->
+            runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) refreshUpdateEntry(); });
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         UiKit.init(this);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        updatePrefs = AppUpdates.preferences(this);
         setContentView(buildContent());
         UiKit.applyWindowTheme(this);
+        updatePrefs.registerOnSharedPreferenceChangeListener(updateListener);
+        AppUpdates.checkInBackground(getApplicationContext(), false);
+        refreshUpdateEntry();
     }
 
     private View buildContent() {
@@ -165,7 +176,104 @@ public class SettingsActivity extends AppCompatActivity {
         Button backBtn = btn("返回播放器", v -> finish());
         UiKit.makePrimary(this, backBtn);
         root.addView(backBtn, fullParams());
+        addUpdateSection(root);
         return scroll;
+    }
+
+    private void addUpdateSection(LinearLayout root) {
+        LinearLayout entry = new LinearLayout(this);
+        entry.setTag("app-update-entry");
+        entry.setOrientation(LinearLayout.HORIZONTAL);
+        entry.setGravity(Gravity.CENTER_VERTICAL);
+        entry.setPadding(dp(4), dp(12), dp(4), dp(12));
+        updateTitle = label("软件更新", 16, UiKit.TEXT);
+        updateTitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        entry.addView(updateTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        updateDot = new View(this);
+        updateDot.setTag("app-update-dot");
+        updateDot.setContentDescription("有新版本可更新");
+        updateDot.setBackground(UiKit.roundRect(this, 0xFFFF453A, android.graphics.Color.TRANSPARENT, 5, 0));
+        entry.addView(updateDot, new LinearLayout.LayoutParams(dp(9), dp(9)));
+        entry.setOnClickListener(v -> showUpdateDetails());
+        updateStatus = label("尚未检查更新", 13, UiKit.SUBTLE);
+        updateStatus.setTag("app-update-status");
+        updateCheckButton = btn("检查更新", v -> {
+            AppUpdates.checkInBackground(getApplicationContext(), true);
+            refreshUpdateEntry();
+        });
+        updateCheckButton.setTag("app-update-check");
+        addSection(root, "软件更新", entry,
+                label("当前版本：V" + AppUpdates.installedName(this), 13, UiKit.SUBTLE), updateStatus,
+                updateCheckButton, label("只在这里用红点提示。不弹窗、不自动下载或安装，忽略后可继续使用当前版本。", 12, UiKit.SUBTLE));
+    }
+
+    private void refreshUpdateEntry() {
+        if (updateStatus == null) return;
+        UpdateInfo info = AppUpdates.cached(this);
+        boolean newer = info != null && info.versionCode > AppUpdates.installedCode(this);
+        boolean ignored = newer && info.versionCode <= updatePrefs.getLong(AppUpdates.IGNORED, 0);
+        updateDot.setVisibility(AppUpdates.showDot(this) ? View.VISIBLE : View.GONE);
+        updateTitle.setText(newer ? (ignored ? "软件更新 · 已忽略 V" : "软件更新 · 新版本 V") + info.versionName : "软件更新");
+        boolean checking = AppUpdates.isChecking();
+        updateCheckButton.setEnabled(!checking);
+        if (checking) {
+            updateStatus.setText("正在后台检查，不影响播放和朗读…");
+        } else if (updatePrefs.getLong(AppUpdates.FINISHED, 0) == 0 && info == null) {
+            updateStatus.setText("尚未检查更新，可点击“检查更新”。");
+        } else if (!updatePrefs.getBoolean(AppUpdates.SUCCEEDED, false)) {
+            updateStatus.setText(info == null ? "暂时无法连接更新源，仍可正常使用当前版本。"
+                    : "网络暂不可用，显示上次的检查结果；当前版本可继续使用。");
+        } else if (newer) {
+            updateStatus.setText(ignored ? "此版本已忽略，不再显示红点；更高版本仍可提示。点击条目仍可查看。"
+                    : "发现新版本。点击上方条目查看，是否更新由你决定。");
+        } else {
+            updateStatus.setText("当前已是最新版本（检查来源：" + updatePrefs.getString(AppUpdates.SOURCE, "GitHub / Gitee") + "）。");
+        }
+    }
+
+    private void showUpdateDetails() {
+        UpdateInfo info = AppUpdates.cached(this);
+        if (info == null || info.versionCode <= AppUpdates.installedCode(this)) {
+            AppUpdates.checkInBackground(getApplicationContext(), true);
+            refreshUpdateEntry();
+            return;
+        }
+        boolean ignored = info.versionCode <= updatePrefs.getLong(AppUpdates.IGNORED, 0);
+        new AlertDialog.Builder(this)
+                .setTitle((ignored ? "已忽略的版本 V" : "发现新版本 V") + info.versionName)
+                .setMessage("当前版本 V" + AppUpdates.installedName(this) + "\n\n" + info.notes
+                        + "\n\n不会自动下载或安装。选择更新后还需确认；忽略或关闭都不影响当前版本使用。")
+                .setPositiveButton("更新", (dialog, which) -> confirmUpdate(info))
+                .setNeutralButton("忽略此版本", (dialog, which) -> {
+                    AppUpdates.ignore(this, info);
+                    refreshUpdateEntry();
+                })
+                .setNegativeButton("暂不更新", null).show();
+    }
+
+    private void confirmUpdate(UpdateInfo info) {
+        new AlertDialog.Builder(this).setTitle("确认前往官方发布页？")
+                .setMessage("将打开 GitHub V" + info.versionName + " 官方发布页，由你选择下载和安装。\n"
+                        + "此操作不会替换当前版本，也不会清空数据。若不更新，可取消并继续使用。\n\n"
+                        + "Gitee 提供同步源码及说明，安装包以 GitHub 发布页为准。")
+                .setPositiveButton("确认前往下载", (dialog, which) -> openUpdatePage(info.releaseUrl))
+                .setNeutralButton("查看 Gitee 说明", (dialog, which) -> openUpdatePage(info.mirrorUrl))
+                .setNegativeButton("取消", null).show();
+    }
+
+    private void openUpdatePage(String url) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+        catch (RuntimeException error) { updateStatus.setText("无法打开浏览器，请稍后从官方仓库的发布页下载。"); }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        refreshUpdateEntry();
+    }
+
+    @Override protected void onDestroy() {
+        if (updatePrefs != null) updatePrefs.unregisterOnSharedPreferenceChangeListener(updateListener);
+        super.onDestroy();
     }
 
     private void showLastCrash() {

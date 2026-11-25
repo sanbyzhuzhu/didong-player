@@ -2,13 +2,13 @@
 
 地洞播放器是一个【安卓】优先的本地音频、视频和电子书朗读播放器（约 8 MB）。它使用 AndroidX Media3/ExoPlayer 作为播放核心，面向听课、听书、整理本地影音和长文本朗读等场景。
 
-当前版本：`V0.0.20`
+当前版本：`V0.0.21`
 
 ![V0.0.20 电子书朗读更新](docs/promo/v0.0.20/wechat-cover-900x383.png)
 
-[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.20)
+[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.21)
 
-本版重点：EPUB 正文顺序与章节目录、Markdown / HTML / DOCX 纯文字朗读、逐句高亮跟随。更新细节见 [Changelog](CHANGELOG.md)，可转发素材见 [V0.0.20 宣发文案与配图](docs/promo/v0.0.20/宣发文案.md)。
+本版重点：设置页底部的静默更新入口，有新版只显示红点，可忽略版本，二次确认后才前往下载。保留 EPUB 目录、Markdown / HTML / DOCX 纯文字朗读和逐句高亮。详见 [静默更新说明](docs/quiet-updates.md) 与 [Changelog](CHANGELOG.md)。上方配图及 [V0.0.20 宣发素材](docs/promo/v0.0.20/宣发文案.md) 为上一版电子书功能介绍。
 
 ## 界面预览
 
@@ -35,15 +35,16 @@
 - 支持朗读书架、章节目录、段落书签、文本搜索和后台朗读通知。
 - 支持朗读背景音乐和可选 MultiTTS 本地接口。
 - 提供 Windows 免安装网页尝鲜版。
+- Android 在后台静默检查 GitHub / Gitee 的公开更新清单，仅在设置页底部用红点提示，支持忽略版本；不会自动弹窗、下载或安装。
 
 ## 下载
 
-Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.20 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.20)。Gitee 同步源码和更新说明，可通过本页的下载入口获取相同安装包。
+Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.21 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.21)。Gitee 同步源码、更新清单和说明，可通过本页下载入口获取相同安装包。先安装 V0.0.21，后续版本才可使用新增的红点更新提示。
 
 本地本次双平台发布归档位于：
 
 ```text
-release/v0.0.20_双平台同步与宣发更新/
+release/v0.0.21_设置页静默更新提醒/
 ```
 
 当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为浏览器原型，本次新增电子书解析针对 Android。
@@ -56,7 +57,7 @@ release/v0.0.20_双平台同步与宣发更新/
 更新 `app/build.gradle` 的版本号与 `CHANGELOG.md` 后，运行（需要 Python 3）：
 
 ```powershell
-python tools/package_release.py --description "EPUB目录与多格式朗读"
+python tools/package_release.py --description "设置页静默更新提醒"
 ```
 
 脚本会重新构建 debug APK，校验版本并打包。如果依赖已缓存可追加 `--offline`。同名目录已存在时会停止，避免覆盖历史版本。

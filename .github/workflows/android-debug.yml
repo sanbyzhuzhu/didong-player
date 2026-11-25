@@ -25,6 +25,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Validate public update manifest
+        run: python3 tools/validate_update_feed.py
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
 

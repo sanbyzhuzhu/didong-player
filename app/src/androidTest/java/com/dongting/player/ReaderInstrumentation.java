@@ -29,6 +29,14 @@ public final class ReaderInstrumentation extends Instrumentation {
     @Override public void onCreate(Bundle args) { arguments = args; start(); }
 
     @Override public void onStart() {
+        if ("updates-live".equals(arguments.getString("suite"))) {
+            new UpdateInstrumentation(this).runLive();
+            return;
+        }
+        if ("updates".equals(arguments.getString("suite"))) {
+            new UpdateInstrumentation(this).run();
+            return;
+        }
         if ("books".equals(arguments.getString("suite"))) {
             new BookInstrumentation(this).onStart();
             return;

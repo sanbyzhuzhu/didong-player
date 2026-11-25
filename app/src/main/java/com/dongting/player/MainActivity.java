@@ -415,6 +415,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             loadPlaylists();
             createTtsFromSystemDefault();
             startupComplete = true;
+            AppUpdates.checkInBackground(getApplicationContext(), false);
         } catch (Throwable t) {
             handler.removeCallbacksAndMessages(null);
             showFatalCrashView(t);

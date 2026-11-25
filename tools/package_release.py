@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from zipfile import ZIP_DEFLATED, ZipFile
+from validate_update_feed import validate as validate_update_feed
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +65,7 @@ def main():
     gradle = (ROOT / "app/build.gradle").read_text(encoding="utf-8")
     version = re.search(r'versionName\s+"([\w.\-]+)"', gradle).group(1)
     version_code = int(re.search(r"versionCode\s+(\d+)", gradle).group(1))
+    validate_update_feed(ROOT)
     release_root = ROOT / "release"
     release_root.mkdir(exist_ok=True)
     destination = release_root / f"v{version}_{description}"
