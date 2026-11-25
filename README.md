@@ -110,4 +110,3 @@ http://127.0.0.1:8774/forward
 2. 将 SharedPreferences/JSON 逐步迁移到 Room。
 3. 改进 Windows 桌面版本，评估 Kotlin Multiplatform、Compose Desktop 或 Flutter。
 4. 评估投屏能力，按设备能力接入 MediaRouter、Google Cast、DLNA 或 Miracast。
-![输入图片说明](docs/promo/v0.0.20/02_icon_evolution_1242x1660.png)
