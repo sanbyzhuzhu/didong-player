@@ -1,21 +1,324 @@
 package com.dongting.player;
 
+import android.app.Activity;
+import android.app.Dialog;
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
+import android.graphics.Insets;
+import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
-/** 三个界面共用的视觉与控件工具，避免配色、圆角、dp 换算各写一份。 */
+/**
+ * 苹果风格动态多主题设计系统与控件工具：
+ * 统一管理 5 套主题配色、系统栏深浅色适配、圆角卡片、药丸按钮与底部抽屉。
+ */
 final class UiKit {
-    static final int BG = 0xFF160E09;
-    static final int PANEL = 0xFF26170E;
-    static final int TEXT = 0xFFFFF4E2;
-    static final int SUBTLE = 0xFFD7B98E;
-    static final int ACCENT = 0xFFFFB451;
+    static final String PREFS_NAME = "dongting_player";
+    static final String KEY_THEME = "uiTheme";
+    static final String KEY_STAGE_FONT = "stageFontLevel";
+
+    static final String[] STAGE_FONT_NAMES = { "小字", "标准", "大字", "特大" };
+    static final float[] STAGE_FONT_SCALES = { 0.88f, 1.0f, 1.18f, 1.36f };
+    static int STAGE_FONT_LEVEL = 1;
+
+    static final String THEME_OCEAN = "ocean";
+    static final String THEME_APPLE_LIGHT = "apple_light";
+    static final String THEME_APPLE_DARK = "apple_dark";
+    static final String THEME_PAPER = "paper";
+    static final String THEME_AMBER = "amber";
+
+    static final String[] THEME_KEYS = {
+            THEME_OCEAN,
+            THEME_APPLE_LIGHT,
+            THEME_APPLE_DARK,
+            THEME_PAPER,
+            THEME_AMBER
+    };
+
+    static final String[] THEME_NAMES = {
+            "静谧深海",
+            "Apple 极简白",
+            "Apple 午夜黑",
+            "暖纸护眼",
+            "树洞暖琥珀"
+    };
+
+    static final String[] THEME_DESCS = {
+            "深海蓝灰 · 晴空蓝与薄荷绿",
+            "经典 iOS 浅灰纯白 · Apple 蓝",
+            "OLED 纯黑 · Apple Music 玫红",
+            "温暖米白 · 久看字幕与听书护眼",
+            "经典深暖棕 · 琥珀金与湖水青"
+    };
+
+    // ---- 当前激活主题的动态颜色令牌（默认：静谧深海） ----
+    static String CURRENT_THEME = THEME_OCEAN;
+    static boolean IS_LIGHT = false;
+
+    static int BG = 0xFF0B1320;
+    static int SURFACE = 0xFF131E30;
+    static int SURFACE_HI = 0xFF1C2A42;
+    static int PRESSED = 0xFF243552;
+    static int STROKE = 0xFF263754;
+
+    static int TEXT = 0xFFF1F5F9;
+    static int SUBTLE = 0xFF94A3B8;
+    static int MUTED = 0xFF64748B;
+
+    static int ACCENT = 0xFF38BDF8;
+    static int ACCENT_PRESSED = 0xFF0EA5E9;
+    static int ACCENT_DIM = 0xFF1E3A5F;
+    static int ON_ACCENT = 0xFF071320;
+
+    static int SECONDARY = 0xFF34D399;
+    static int SECONDARY_PRESSED = 0xFF10B981;
+    static int ON_SECONDARY = 0xFF062018;
+
+    static int CORAL = 0xFFFF5A79;
+    static int PANEL = SURFACE;
 
     private UiKit() {
+    }
+
+    /** 启动或切换主题时调用，同步刷新全部颜色令牌与舞台字号。 */
+    static String init(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String key = prefs.getString(KEY_THEME, THEME_OCEAN);
+        STAGE_FONT_LEVEL = Math.max(0, Math.min(STAGE_FONT_SCALES.length - 1, prefs.getInt(KEY_STAGE_FONT, 1)));
+        applyPalette(key);
+        return CURRENT_THEME;
+    }
+
+    static float stageFontScale() {
+        return STAGE_FONT_SCALES[Math.max(0, Math.min(STAGE_FONT_SCALES.length - 1, STAGE_FONT_LEVEL))];
+    }
+
+    static String stageFontName() {
+        return STAGE_FONT_NAMES[Math.max(0, Math.min(STAGE_FONT_NAMES.length - 1, STAGE_FONT_LEVEL))];
+    }
+
+    static String cycleStageFont(Context context) {
+        STAGE_FONT_LEVEL = (STAGE_FONT_LEVEL + 1) % STAGE_FONT_SCALES.length;
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_STAGE_FONT, STAGE_FONT_LEVEL)
+                .apply();
+        return stageFontName();
+    }
+
+    static void setTheme(Context context, String key) {
+        applyPalette(key);
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_THEME, CURRENT_THEME)
+                .apply();
+    }
+
+    static String currentThemeName() {
+        for (int i = 0; i < THEME_KEYS.length; i++) {
+            if (THEME_KEYS[i].equals(CURRENT_THEME)) return THEME_NAMES[i];
+        }
+        return THEME_NAMES[0];
+    }
+
+    private static void applyPalette(String key) {
+        if (THEME_APPLE_LIGHT.equals(key)) {
+            CURRENT_THEME = THEME_APPLE_LIGHT;
+            IS_LIGHT = true;
+            BG = 0xFFF2F2F7;
+            SURFACE = 0xFFFFFFFF;
+            SURFACE_HI = 0xFFE9E9EF;
+            PRESSED = 0xFFDCDCE4;
+            STROKE = 0xFFD8D8E0;
+            TEXT = 0xFF1C1C1E;
+            SUBTLE = 0xFF636366;
+            MUTED = 0xFF8E8E93;
+            ACCENT = 0xFF007AFF;
+            ACCENT_PRESSED = 0xFF0062CC;
+            ACCENT_DIM = 0xFFD6E8FF;
+            ON_ACCENT = 0xFFFFFFFF;
+            SECONDARY = 0xFF34C759;
+            SECONDARY_PRESSED = 0xFF28A745;
+            ON_SECONDARY = 0xFFFFFFFF;
+            CORAL = 0xFFFF3B30;
+        } else if (THEME_APPLE_DARK.equals(key)) {
+            CURRENT_THEME = THEME_APPLE_DARK;
+            IS_LIGHT = false;
+            BG = 0xFF000000;
+            SURFACE = 0xFF1C1C1E;
+            SURFACE_HI = 0xFF2C2C2E;
+            PRESSED = 0xFF3A3A3C;
+            STROKE = 0xFF38383A;
+            TEXT = 0xFFF5F5F7;
+            SUBTLE = 0xFFAEAEB2;
+            MUTED = 0xFF8E8E93;
+            ACCENT = 0xFFFA2D48;
+            ACCENT_PRESSED = 0xFFD91E36;
+            ACCENT_DIM = 0xFF4A1822;
+            ON_ACCENT = 0xFFFFFFFF;
+            SECONDARY = 0xFF30D158;
+            SECONDARY_PRESSED = 0xFF24B347;
+            ON_SECONDARY = 0xFF041D0A;
+            CORAL = 0xFFFF453A;
+        } else if (THEME_PAPER.equals(key)) {
+            CURRENT_THEME = THEME_PAPER;
+            IS_LIGHT = true;
+            BG = 0xFFF6F0E4;
+            SURFACE = 0xFFFDFBF7;
+            SURFACE_HI = 0xFFEDE3D1;
+            PRESSED = 0xFFE2D4BC;
+            STROKE = 0xFFDDD0BA;
+            TEXT = 0xFF2B2118;
+            SUBTLE = 0xFF6E5D4D;
+            MUTED = 0xFF9C8A77;
+            ACCENT = 0xFFC86D2D;
+            ACCENT_PRESSED = 0xFFA85720;
+            ACCENT_DIM = 0xFFF1DEC8;
+            ON_ACCENT = 0xFFFFFFFF;
+            SECONDARY = 0xFF2E8B78;
+            SECONDARY_PRESSED = 0xFF237060;
+            ON_SECONDARY = 0xFFFFFFFF;
+            CORAL = 0xFFD94E4E;
+        } else if (THEME_AMBER.equals(key)) {
+            CURRENT_THEME = THEME_AMBER;
+            IS_LIGHT = false;
+            BG = 0xFF0C0805;
+            SURFACE = 0xFF181009;
+            SURFACE_HI = 0xFF221710;
+            PRESSED = 0xFF2D1F14;
+            STROKE = 0xFF33241A;
+            TEXT = 0xFFF5EDE2;
+            SUBTLE = 0xFFB3A08A;
+            MUTED = 0xFF7A6B58;
+            ACCENT = 0xFFFFB451;
+            ACCENT_PRESSED = 0xFFFF9E2C;
+            ACCENT_DIM = 0xFF4A3114;
+            ON_ACCENT = 0xFF140C05;
+            SECONDARY = 0xFF4FD8C4;
+            SECONDARY_PRESSED = 0xFF3AB8A6;
+            ON_SECONDARY = 0xFF051A17;
+            CORAL = 0xFFFF5A79;
+        } else {
+            // 默认：静谧深海
+            CURRENT_THEME = THEME_OCEAN;
+            IS_LIGHT = false;
+            BG = 0xFF0B1320;
+            SURFACE = 0xFF131E30;
+            SURFACE_HI = 0xFF1C2A42;
+            PRESSED = 0xFF243552;
+            STROKE = 0xFF263754;
+            TEXT = 0xFFF1F5F9;
+            SUBTLE = 0xFF94A3B8;
+            MUTED = 0xFF64748B;
+            ACCENT = 0xFF38BDF8;
+            ACCENT_PRESSED = 0xFF0EA5E9;
+            ACCENT_DIM = 0xFF1A3554;
+            ON_ACCENT = 0xFF071320;
+            SECONDARY = 0xFF34D399;
+            SECONDARY_PRESSED = 0xFF10B981;
+            ON_SECONDARY = 0xFF062018;
+            CORAL = 0xFFFF5A79;
+        }
+        PANEL = SURFACE;
+    }
+
+    /**
+     * 同步系统状态栏、导航栏与窗口底色，支持浅色/深色图标切换。
+     * 注意：必须在 setContentView(...) 之后调用，避免提前触发 PhoneWindow.getDecorView() 导致 AppCompat 崩溃。
+     */
+    static void applyWindowTheme(Activity activity) {
+        if (activity == null) return;
+        Window window = activity.getWindow();
+        if (window == null) return;
+        try {
+            window.setBackgroundDrawable(new ColorDrawable(BG));
+            window.setStatusBarColor(BG);
+            window.setNavigationBarColor(BG);
+            View decor = window.getDecorView();
+            if (decor == null) return;
+            decor.post(() -> {
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        WindowInsetsController controller = window.getInsetsController();
+                        if (controller != null) {
+                            int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                            controller.setSystemBarsAppearance(IS_LIGHT ? mask : 0, mask);
+                        }
+                    } else {
+                        int flags = decor.getSystemUiVisibility();
+                        if (IS_LIGHT) {
+                            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                            }
+                        } else {
+                            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+                            }
+                        }
+                        decor.setSystemUiVisibility(flags);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    static int withAlpha(int color, float alpha) {
+        return (color & 0x00FFFFFF) | (Math.round(Math.max(0f, Math.min(1f, alpha)) * 255f) << 24);
+    }
+
+    static GradientDrawable roundRect(Context context, int fillColor, int strokeColor, int radiusDp, int strokeDp) {
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.RECTANGLE);
+        d.setCornerRadius(dp(context, radiusDp));
+        d.setColor(fillColor);
+        if (strokeDp > 0 && strokeColor != Color.TRANSPARENT) {
+            d.setStroke(dp(context, strokeDp), strokeColor);
+        }
+        return d;
+    }
+
+    static StateListDrawable statePill(Context context, int normalColor, int pressedColor, int strokeColor, int radiusDp) {
+        StateListDrawable sld = new StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_pressed},
+                roundRect(context, pressedColor, strokeColor, radiusDp, strokeColor == Color.TRANSPARENT ? 0 : 1));
+        sld.addState(new int[]{},
+                roundRect(context, normalColor, strokeColor, radiusDp, strokeColor == Color.TRANSPARENT ? 0 : 1));
+        return sld;
+    }
+
+    static GradientDrawable cardBg(Context context, int radiusDp, boolean active) {
+        if (active) {
+            return roundRect(context, withAlpha(ACCENT, IS_LIGHT ? 0.14f : 0.18f),
+                    withAlpha(ACCENT, 0.55f), radiusDp, 1);
+        }
+        return roundRect(context, SURFACE, withAlpha(STROKE, IS_LIGHT ? 0.75f : 0.85f), radiusDp, 1);
+    }
+
+    static GradientDrawable inputBg(Context context) {
+        return roundRect(context, SURFACE_HI, STROKE, 14, 1);
     }
 
     static Button button(Context context, String text, View.OnClickListener listener) {
@@ -23,18 +326,190 @@ final class UiKit {
         button.setText(text);
         button.setAllCaps(false);
         button.setTextColor(TEXT);
-        button.setTextSize(14);
-        button.setBackgroundResource(R.drawable.dt_button);
-        button.setPadding(dp(context, 4), 0, dp(context, 4), 0);
+        button.setTextSize(13);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(context, 10), dp(context, 8), dp(context, 10), dp(context, 8));
+        button.setBackground(statePill(context, SURFACE_HI, PRESSED, withAlpha(STROKE, 0.7f), 14));
+        button.setStateListAnimator(null);
         button.setOnClickListener(listener);
         return button;
     }
 
-    /** 主操作按钮（播放、朗读）用强调色，文字改为深色以保证对比度。 */
-    static void makePrimary(Button button) {
+    /** 播放主操作按钮：主题主强调色圆角药丸。 */
+    static void makePrimary(Context context, Button button) {
         if (button == null) return;
-        button.setTextColor(BG);
-        button.setBackgroundResource(R.drawable.dt_button_primary);
+        button.setTextColor(ON_ACCENT);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setBackground(statePill(context, ACCENT, ACCENT_PRESSED, Color.TRANSPARENT, 26));
+    }
+
+    /** 朗读主操作按钮：主题次强调色圆角药丸。 */
+    static void makeSecondary(Context context, Button button) {
+        if (button == null) return;
+        button.setTextColor(ON_SECONDARY);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setBackground(statePill(context, SECONDARY, SECONDARY_PRESSED, Color.TRANSPARENT, 26));
+    }
+
+    /** 兼容旧签名调用。 */
+    static void makePrimary(Button button) {
+        if (button != null) makePrimary(button.getContext(), button);
+    }
+
+    static void makeSecondary(Button button) {
+        if (button != null) makeSecondary(button.getContext(), button);
+    }
+
+    /** 苹果风轻胶囊按钮：用于顶栏与次级快捷操作。 */
+    static Button chip(Context context, String text, View.OnClickListener listener) {
+        Button chip = new Button(context);
+        chip.setText(text);
+        chip.setAllCaps(false);
+        chip.setTextColor(SUBTLE);
+        chip.setTextSize(12);
+        chip.setMinHeight(0);
+        chip.setMinimumHeight(0);
+        chip.setMinWidth(0);
+        chip.setMinimumWidth(0);
+        chip.setPadding(dp(context, 12), dp(context, 6), dp(context, 12), dp(context, 6));
+        chip.setBackground(statePill(context, SURFACE, SURFACE_HI, withAlpha(STROKE, 0.8f), 18));
+        chip.setStateListAnimator(null);
+        chip.setOnClickListener(listener);
+        return chip;
+    }
+
+    /** 底部极简导航栏按钮（带细线条矢量小图标 + 文字）。 */
+    static LinearLayout dockIconButton(Context context, int iconRes, String text, View.OnClickListener listener) {
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(context, 4), dp(context, 6), dp(context, 4), dp(context, 5));
+        box.setBackground(statePill(context, SURFACE, SURFACE_HI, withAlpha(STROKE, 0.55f), 14));
+        box.setClickable(true);
+        box.setFocusable(true);
+        box.setOnClickListener(listener);
+
+        ImageView icon = new ImageView(context);
+        icon.setImageResource(iconRes);
+        icon.setImageTintList(ColorStateList.valueOf(SUBTLE));
+        LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(context, 18), dp(context, 18));
+        iconLp.setMargins(0, 0, 0, dp(context, 2));
+        box.addView(icon, iconLp);
+
+        TextView label = new TextView(context);
+        label.setText(text);
+        label.setTextSize(11);
+        label.setTextColor(SUBTLE);
+        label.setSingleLine(true);
+        label.setGravity(Gravity.CENTER);
+        box.addView(label);
+        return box;
+    }
+
+    /** 苹果风格主题化下拉框外观。 */
+    static void styleSpinner(Context context, android.widget.Spinner spinner) {
+        if (spinner == null) return;
+        spinner.setBackground(inputBg(context));
+        spinner.setPadding(dp(context, 10), dp(context, 6), dp(context, 10), dp(context, 6));
+        spinner.setPopupBackgroundDrawable(cardBg(context, 14, false));
+    }
+
+    /** 随当前主题自适应文字与背景色的 Spinner Adapter。 */
+    static android.widget.ArrayAdapter<String> themedSpinnerAdapter(Context context, java.util.List<String> items) {
+        return new android.widget.ArrayAdapter<String>(context, android.R.layout.simple_spinner_item, items) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView tv = (TextView) super.getView(position, convertView, parent);
+                tv.setTextColor(TEXT);
+                tv.setTextSize(14);
+                tv.setPadding(dp(context, 4), dp(context, 6), dp(context, 4), dp(context, 6));
+                tv.setSingleLine(true);
+                tv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                return tv;
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView tv = (TextView) super.getDropDownView(position, convertView, parent);
+                tv.setTextColor(TEXT);
+                tv.setBackgroundColor(SURFACE);
+                tv.setTextSize(14);
+                tv.setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12));
+                return tv;
+            }
+        };
+    }
+
+    interface OnSheetItemSelected {
+        void onSelected(int index);
+    }
+
+    /** 苹果风格圆角底部菜单抽屉（替代突兀的系统白底 AlertDialog）。 */
+    static Dialog showChoiceSheet(Activity activity, String titleText, String[] items, int selectedIndex, OnSheetItemSelected listener) {
+        LinearLayout list = new LinearLayout(activity);
+        list.setOrientation(LinearLayout.VERTICAL);
+        final Dialog[] holder = new Dialog[1];
+        for (int i = 0; i < items.length; i++) {
+            final int index = i;
+            boolean selected = index == selectedIndex;
+            Button rowBtn = button(activity, (selected ? "✓  " : "") + items[i], v -> {
+                if (holder[0] != null) holder[0].dismiss();
+                if (listener != null) listener.onSelected(index);
+            });
+            rowBtn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            rowBtn.setPadding(dp(activity, 16), dp(activity, 13), dp(activity, 16), dp(activity, 13));
+            rowBtn.setTextSize(14);
+            if (selected) {
+                makePrimary(activity, rowBtn);
+            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, dp(activity, 4), 0, dp(activity, 4));
+            list.addView(rowBtn, lp);
+        }
+        holder[0] = showBottomSheet(activity, titleText, list, items.length > 7);
+        return holder[0];
+    }
+
+    /** 底部极简导航栏按钮。 */
+    static Button dockButton(Context context, String text, View.OnClickListener listener) {
+        Button btn = new Button(context);
+        btn.setText(text);
+        btn.setAllCaps(false);
+        btn.setTextColor(SUBTLE);
+        btn.setTextSize(12);
+        btn.setMinHeight(0);
+        btn.setMinimumHeight(0);
+        btn.setPadding(dp(context, 6), dp(context, 8), dp(context, 6), dp(context, 8));
+        btn.setBackground(statePill(context, SURFACE, SURFACE_HI, withAlpha(STROKE, 0.55f), 14));
+        btn.setStateListAnimator(null);
+        btn.setOnClickListener(listener);
+        return btn;
+    }
+
+    /** 圆形图标按钮（上一首 / 下一首等）。 */
+    static ImageView iconButton(Context context, int iconRes, int tint, View.OnClickListener listener) {
+        ImageView view = new ImageView(context);
+        view.setBackground(statePill(context, SURFACE_HI, PRESSED, withAlpha(STROKE, 0.65f), 28));
+        view.setImageResource(iconRes);
+        view.setImageTintList(ColorStateList.valueOf(tint));
+        int pad = dp(context, 12);
+        view.setPadding(pad, pad, pad, pad);
+        view.setOnClickListener(listener);
+        return view;
+    }
+
+    /** 大号圆形主按钮（播放页居中主控）。 */
+    static ImageView roundPrimaryButton(Context context, int iconRes, View.OnClickListener listener) {
+        ImageView view = new ImageView(context);
+        view.setBackground(statePill(context, ACCENT, ACCENT_PRESSED, Color.TRANSPARENT, 40));
+        view.setImageResource(iconRes);
+        view.setImageTintList(ColorStateList.valueOf(ON_ACCENT));
+        int pad = dp(context, 22);
+        view.setPadding(pad, pad, pad, pad);
+        view.setOnClickListener(listener);
+        return view;
     }
 
     static TextView label(Context context, String text, int sp, int color) {
@@ -42,24 +517,148 @@ final class UiKit {
         view.setText(text);
         view.setTextSize(sp);
         view.setTextColor(color);
-        view.setPadding(0, dp(context, 4), 0, dp(context, 4));
+        view.setPadding(0, dp(context, 3), 0, dp(context, 3));
         return view;
+    }
+
+    /** 苹果风分组小标题。 */
+    static TextView sectionTitle(Context context, String text) {
+        TextView view = new TextView(context);
+        view.setText(text);
+        view.setTextSize(13);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setTextColor(ACCENT);
+        view.setPadding(dp(context, 4), dp(context, 14), dp(context, 4), dp(context, 6));
+        return view;
+    }
+
+    /** 卡片容器：18dp 圆角 + 细腻描边。 */
+    static LinearLayout card(Context context, int paddingDp) {
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(cardBg(context, 18, false));
+        int pad = dp(context, paddingDp);
+        card.setPadding(pad, pad, pad, pad);
+        return card;
+    }
+
+    static SeekBar seekBar(Context context) {
+        SeekBar bar = new SeekBar(context);
+        bar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+        bar.setProgressBackgroundTintList(ColorStateList.valueOf(withAlpha(SUBTLE, 0.3f)));
+        bar.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        bar.setSplitTrack(false);
+        return bar;
     }
 
     static LinearLayout row(Context context, View... views) {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER);
-        int height = dp(context, 44);
+        int height = dp(context, 42);
         for (View view : views) {
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, height, 1f);
-            params.setMargins(dp(context, 2), dp(context, 1), dp(context, 2), dp(context, 1));
+            params.setMargins(dp(context, 3), dp(context, 3), dp(context, 3), dp(context, 3));
             row.addView(view, params);
         }
         return row;
     }
 
+    /**
+     * 苹果风格底部圆角抽屉弹窗：
+     * 自动把传入的内容视图从旧父容器安全分离，关闭时再分离，支持反复打开复用。
+     */
+    static Dialog showBottomSheet(Activity activity, String titleText, View contentView, boolean scrollable) {
+        detachFromParent(contentView);
+        Dialog dialog = new Dialog(activity);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+        LinearLayout sheet = new LinearLayout(activity);
+        sheet.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(BG);
+        float r = dp(activity, 24);
+        bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        bg.setStroke(dp(activity, 1), withAlpha(STROKE, 0.7f));
+        sheet.setBackground(bg);
+        sheet.setPadding(dp(activity, 16), dp(activity, 10), dp(activity, 16), dp(activity, 18));
+
+        // 顶部 iOS 风格小抓手条
+        View handle = new View(activity);
+        handle.setBackground(roundRect(activity, withAlpha(SUBTLE, 0.35f), Color.TRANSPARENT, 3, 0));
+        LinearLayout.LayoutParams handleLp = new LinearLayout.LayoutParams(dp(activity, 38), dp(activity, 4));
+        handleLp.gravity = Gravity.CENTER_HORIZONTAL;
+        handleLp.setMargins(0, 0, 0, dp(activity, 10));
+        sheet.addView(handle, handleLp);
+
+        // 标题栏 + 完成按钮
+        LinearLayout header = new LinearLayout(activity);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(activity);
+        title.setText(titleText);
+        title.setTextSize(17);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(TEXT);
+        header.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        Button done = chip(activity, "完成", v -> dialog.dismiss());
+        done.setTextColor(ACCENT);
+        header.addView(done);
+        LinearLayout.LayoutParams headerLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        headerLp.setMargins(0, 0, 0, dp(activity, 10));
+        sheet.addView(header, headerLp);
+
+        int maxHeight = Math.round(activity.getResources().getDisplayMetrics().heightPixels * 0.72f);
+        if (scrollable) {
+            ScrollView scroll = new ScrollView(activity);
+            scroll.addView(contentView, new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            sheet.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
+        } else {
+            sheet.addView(contentView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
+        }
+
+        dialog.setContentView(sheet);
+        dialog.setOnDismissListener(d -> detachFromParent(contentView));
+
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+            WindowManager.LayoutParams lp = window.getAttributes();
+            lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+            lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            lp.gravity = Gravity.BOTTOM;
+            lp.dimAmount = IS_LIGHT ? 0.32f : 0.58f;
+            window.setAttributes(lp);
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        }
+        dialog.show();
+        return dialog;
+    }
+
+    static void detachFromParent(View view) {
+        if (view != null && view.getParent() instanceof ViewGroup) {
+            ((ViewGroup) view.getParent()).removeView(view);
+        }
+    }
+
     static int dp(Context context, int value) {
         return Math.round(value * context.getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * Android 15（API 35）起 targetSdk 35+ 强制 edge-to-edge，
+     * 将系统栏高度垫进根布局内边距，避免顶部标题被状态栏遮挡、底部按钮被手势条遮挡。
+     */
+    static void applySystemBarInsets(View root, int basePaddingX, int basePaddingY) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+            v.setPadding(basePaddingX + bars.left, basePaddingY + bars.top,
+                    basePaddingX + bars.right, basePaddingY + bars.bottom);
+            return WindowInsets.CONSUMED;
+        });
     }
 }

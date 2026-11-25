@@ -13,4 +13,5 @@ local.properties
 *.keystore
 *.jks
 captures/
+release/
 tools/generate_marketing_assets.py

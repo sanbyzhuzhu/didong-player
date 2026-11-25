@@ -29,33 +29,52 @@ import java.net.URL;
 
 public class SettingsActivity extends AppCompatActivity {
     private static final String PREFS = "dongting_player";
-    private static final int COLOR_BG = UiKit.BG;
-    private static final int COLOR_PANEL = UiKit.PANEL;
-    private static final int COLOR_TEXT = UiKit.TEXT;
-    private static final int COLOR_SUBTLE = UiKit.SUBTLE;
-    private static final int COLOR_ACCENT = UiKit.ACCENT;
 
     private SharedPreferences prefs;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        UiKit.init(this);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         setContentView(buildContent());
+        UiKit.applyWindowTheme(this);
     }
 
     private View buildContent() {
         ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(COLOR_BG);
+        scroll.setBackgroundColor(UiKit.BG);
+        UiKit.applySystemBarInsets(scroll, 0, 0);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(14), dp(14), dp(24));
+        root.setPadding(dp(16), dp(14), dp(16), dp(26));
         scroll.addView(root);
 
-        TextView title = label("地洞设置中心", 22, COLOR_TEXT);
+        TextView title = label("地洞设置中心", 22, UiKit.TEXT);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         title.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(title);
-        root.addView(label("把播放、朗读、视频和数据设置集中到这里。部分播放中的实时设置仍在主界面立即生效。", 13, COLOR_SUBTLE));
+        root.addView(label("外观主题、播放、朗读、视频与数据设置。", 13, UiKit.SUBTLE));
+
+        // 新增：外观主题切换卡片（5 套苹果风主题，点击立即生效）
+        View[] themeButtons = new View[UiKit.THEME_KEYS.length + 1];
+        themeButtons[0] = label("当前主题：" + UiKit.currentThemeName() + "（点击下方立即切换）", 13, UiKit.SUBTLE);
+        for (int i = 0; i < UiKit.THEME_KEYS.length; i++) {
+            final String key = UiKit.THEME_KEYS[i];
+            final String name = UiKit.THEME_NAMES[i];
+            final String desc = UiKit.THEME_DESCS[i];
+            boolean selected = key.equals(UiKit.CURRENT_THEME);
+            Button b = btn((selected ? "✓ " : "") + name + " · " + desc, v -> {
+                if (!key.equals(UiKit.CURRENT_THEME)) {
+                    UiKit.setTheme(this, key);
+                    toast("已切换主题：" + name);
+                    recreate();
+                }
+            });
+            if (selected) UiKit.makePrimary(this, b);
+            themeButtons[i + 1] = b;
+        }
+        addSection(root, "外观主题", themeButtons);
 
         addSection(root, "播放设置",
                 btn("恢复全部默认", v -> confirmResetAllDefaults()),
@@ -68,14 +87,14 @@ public class SettingsActivity extends AppCompatActivity {
                     toast("已清除当前播放记忆");
                 }),
                 btn("后台播放保护", v -> openBatteryOptimizationSettings()),
-                label("摘掉耳机、来电或其它应用占用音频时会自动暂停，需手动点播放才继续；播放进度每 5 秒自动保存。若后台仍被系统杀掉，请把本应用设为「不优化电池」。", 13, COLOR_SUBTLE));
+                label("摘掉耳机、来电或其它应用占用音频时会自动暂停，需手动点播放才继续；播放进度每 5 秒自动保存。若后台仍被系统杀掉，请把本应用设为「不优化电池」。", 13, UiKit.SUBTLE));
 
         addSection(root, "音效设置",
                 slider("播放音量", "volume", 100, 100),
                 slider("无损增益", "boost", 3000, 0),
                 slider("低音增强", "bass", 1000, 0),
                 slider("立体感增强", "stereo", 1000, 0),
-                label("主界面高级控制中还提供五段均衡器，部分手机或蓝牙设备可能限制系统音效。", 13, COLOR_SUBTLE),
+                label("主界面「音效」抽屉中还提供五段均衡器与 6 套预设，部分手机或蓝牙设备可能限制系统音效。", 13, UiKit.SUBTLE),
                 btn("恢复音效默认", v -> {
                     prefs.edit().putInt("boost", 0).putInt("bass", 0).putInt("stereo", 0).putInt("volume", 100).apply();
                     toast("音效已恢复默认");
@@ -123,9 +142,10 @@ public class SettingsActivity extends AppCompatActivity {
                 check("视频播放时保持屏幕常亮", "videoKeepScreenOn", true),
                 check("视频全屏播放时自动隐藏控制台", "videoFullscreenControls", true),
                 check("视频全屏时填充画面", "videoFillScreen", false),
-                label("默认完整显示原比例，适合手机竖屏视频；开启填充画面会铺满屏幕但可能裁掉边缘。视频控制台支持导入 SRT 字幕、同名字幕自动匹配、字幕偏移和旋转画面。", 14, COLOR_SUBTLE));
+                label("默认完整显示原比例，适合手机竖屏视频；开启填充画面会铺满屏幕但可能裁掉边缘。视频控制台支持导入 SRT 字幕、同名字幕自动匹配、字幕偏移和旋转画面。", 13, UiKit.SUBTLE));
 
         addSection(root, "数据管理",
+                btn("查看上次闪退日志", v -> showLastCrash()),
                 btn("清空最近播放", v -> {
                     clearPlaylist("最近播放");
                     toast("已清空最近播放");
@@ -134,31 +154,63 @@ public class SettingsActivity extends AppCompatActivity {
                 btn("清除所有播放位置", v -> confirmClearPrefix("pos:", "播放位置")),
                 btn("清除所有 AB 循环", v -> confirmClearPrefix("ab:", "AB 循环")),
                 btn("清除所有书签", v -> confirmClearPrefix("bookmarks:", "书签")),
-                label("清空列表只会删除 App 内记录，不会删除手机里的音频/视频文件。", 13, COLOR_SUBTLE));
+                label("清空列表只会删除 App 内记录，不会删除手机里的音频/视频文件。", 13, UiKit.SUBTLE));
 
         addSection(root, "开发说明",
-                label("地洞播放器由朱振坚个人利用 AI 在业余时间开发，并按 Apache-2.0 许可证开源发布。", 14, COLOR_TEXT),
-                label("首发在公众号：小二菜园", 14, COLOR_SUBTLE),
-                label("微信和 QQ：254850837", 14, COLOR_SUBTLE),
-                label("祝大家学习愉快！", 14, COLOR_ACCENT));
+                label("地洞播放器由朱振坚个人利用 AI 在业余时间开发，并按 Apache-2.0 许可证开源发布。", 14, UiKit.TEXT),
+                label("首发在公众号：小二菜园", 14, UiKit.SUBTLE),
+                label("微信和 QQ：254850837", 14, UiKit.SUBTLE),
+                label("祝大家学习愉快！", 14, UiKit.ACCENT));
 
-        root.addView(btn("返回播放器", v -> finish()), fullParams());
+        Button backBtn = btn("返回播放器", v -> finish());
+        UiKit.makePrimary(this, backBtn);
+        root.addView(backBtn, fullParams());
         return scroll;
     }
 
+    private void showLastCrash() {
+        String trace = prefs.getString("lastCrashTrace", "");
+        if (trace == null || trace.trim().isEmpty()) {
+            toast("没有记录到闪退日志");
+            return;
+        }
+        TextView content = label(trace, 12, UiKit.TEXT);
+        content.setTextIsSelectable(true);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        new AlertDialog.Builder(this)
+                .setTitle("上次闪退日志")
+                .setView(scroll)
+                .setPositiveButton("复制", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                            getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("crash", trace));
+                        toast("已复制错误堆栈");
+                    }
+                })
+                .setNeutralButton("清除日志", (dialog, which) ->
+                        prefs.edit().remove("lastCrashTrace").apply())
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
     private void addSection(LinearLayout root, String title, View... views) {
-        TextView header = label(title, 17, COLOR_ACCENT);
-        header.setPadding(0, dp(18), 0, dp(6));
-        root.addView(header);
-        for (View view : views) root.addView(view, fullParams());
+        root.addView(UiKit.sectionTitle(this, title));
+        // 每个分区包一张卡片，视觉上与其他界面统一
+        LinearLayout card = UiKit.card(this, 12);
+        for (View view : views) card.addView(view, fullParams());
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cardParams.setMargins(0, dp(2), 0, dp(8));
+        root.addView(card, cardParams);
     }
 
     private View slider(String title, String key, int max, int defaultValue) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(0, dp(4), 0, dp(8));
-        TextView value = label(title + "：" + prefs.getInt(key, defaultValue), 14, COLOR_SUBTLE);
-        SeekBar bar = new SeekBar(this);
+        TextView value = label(title + "：" + prefs.getInt(key, defaultValue), 14, UiKit.SUBTLE);
+        SeekBar bar = UiKit.seekBar(this);
         bar.setMax(max);
         bar.setProgress(prefs.getInt(key, defaultValue));
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -191,8 +243,8 @@ public class SettingsActivity extends AppCompatActivity {
     private View check(String text, String key, boolean defaultValue) {
         CheckBox box = new CheckBox(this);
         box.setText(text);
-        box.setTextColor(COLOR_TEXT);
-        box.setButtonTintList(android.content.res.ColorStateList.valueOf(COLOR_ACCENT));
+        box.setTextColor(UiKit.TEXT);
+        box.setButtonTintList(android.content.res.ColorStateList.valueOf(UiKit.ACCENT));
         box.setChecked(prefs.getBoolean(key, defaultValue));
         box.setOnCheckedChangeListener((buttonView, isChecked) -> prefs.edit().putBoolean(key, isChecked).apply());
         return box;
@@ -215,9 +267,10 @@ public class SettingsActivity extends AppCompatActivity {
         input.setSingleLine(true);
         input.setText(prefs.getString("externalTtsVoice", ""));
         input.setHint("例如 MultiTTS voices 接口里的 voice id，可留空");
-        input.setTextColor(COLOR_TEXT);
-        input.setHintTextColor(COLOR_SUBTLE);
-        input.setBackgroundColor(COLOR_PANEL);
+        input.setTextColor(UiKit.TEXT);
+        input.setHintTextColor(UiKit.SUBTLE);
+        input.setBackground(UiKit.inputBg(this));
+        input.setPadding(dp(10), dp(8), dp(10), dp(8));
         new AlertDialog.Builder(this)
                 .setTitle("MultiTTS 音色 ID")
                 .setMessage("如果 MultiTTS 的 /voices 能看到 voiceCode 或 voice id，可填在这里。留空则使用 MultiTTS 当前默认音色。")
@@ -242,9 +295,10 @@ public class SettingsActivity extends AppCompatActivity {
         input.setSingleLine(true);
         input.setText(prefs.getString("externalTtsForwardUrl", "http://127.0.0.1:8774/forward"));
         input.setHint("http://127.0.0.1:8774/forward");
-        input.setTextColor(COLOR_TEXT);
-        input.setHintTextColor(COLOR_SUBTLE);
-        input.setBackgroundColor(COLOR_PANEL);
+        input.setTextColor(UiKit.TEXT);
+        input.setHintTextColor(UiKit.SUBTLE);
+        input.setBackground(UiKit.inputBg(this));
+        input.setPadding(dp(10), dp(8), dp(10), dp(8));
         new AlertDialog.Builder(this)
                 .setTitle("MultiTTS 转发地址")
                 .setMessage("如果 MultiTTS 实际端口不是 8774，可在这里改。必须包含 /forward。")

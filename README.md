@@ -1,8 +1,14 @@
 # 地洞播放器
 
-地洞播放器是一个【安卓】优先的本地音频、视频和 TXT 朗读播放器（7MB左右）。它使用 AndroidX Media3/ExoPlayer 作为播放核心，面向听课、听书、整理本地影音和长文本朗读等场景。
+地洞播放器是一个【安卓】优先的本地音频、视频和电子书朗读播放器（约 8 MB）。它使用 AndroidX Media3/ExoPlayer 作为播放核心，面向听课、听书、整理本地影音和长文本朗读等场景。
 
-当前版本：`V0.0.16`
+当前版本：`V0.0.20`
+
+![V0.0.20 电子书朗读更新](docs/promo/v0.0.20/wechat-cover-900x383.png)
+
+[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.20)
+
+本版重点：EPUB 正文顺序与章节目录、Markdown / HTML / DOCX 纯文字朗读、逐句高亮跟随。更新细节见 [Changelog](CHANGELOG.md)，可转发素材见 [V0.0.20 宣发文案与配图](docs/promo/v0.0.20/宣发文案.md)。
 
 ## 界面预览
 
@@ -24,20 +30,37 @@
 - 支持系统音效增强、响度增益、低音增强、立体感增强和五段 EQ。
 - 支持 LRC/SRT/WebVTT 歌词字幕导入、同名自动匹配、偏移调整和三行滚动高亮显示。
 - 播放进度每 5 秒自动保存；摘掉耳机、来电或音频被占用时自动暂停，需手动点播放才继续。
-- 支持 TXT/JSON/轻量 EPUB 文本导入与系统 TTS 朗读，后台朗读同样遵守「暂停后手动继续」。
+- 支持 TXT、EPUB、Markdown、HTML、DOCX、JSON 的纯文字导入与系统 TTS 朗读，后台朗读同样遵守「暂停后手动继续」。
+- EPUB 按 spine 顺序阅读，支持 EPUB 3 nav / EPUB 2 NCX 目录及章节内锚点；Markdown、HTML、DOCX 标题可作为目录。详见 [电子书导入说明](docs/ebook-import.md)。
 - 支持朗读书架、章节目录、段落书签、文本搜索和后台朗读通知。
 - 支持朗读背景音乐和可选 MultiTTS 本地接口。
 - 提供 Windows 免安装网页尝鲜版。
 
 ## 下载
 
-当前调试包在本地构建后位于：
+Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.20 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.20)。Gitee 同步源码和更新说明，可通过本页的下载入口获取相同安装包。
+
+本地本次双平台发布归档位于：
 
 ```text
-release/didong-player-v0.0.16-debug.apk
+release/v0.0.20_双平台同步与宣发更新/
 ```
 
-正式公开后，建议在 GitHub Releases 中发布 APK，不建议把 APK 文件提交进 git 历史。
+当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为浏览器原型，本次新增电子书解析针对 Android。
+
+### 统一发布打包
+
+以后发布统一放在 `release/v版本号_说明/`，包括 APK、源码 ZIP、现有 Windows 免安装网页版 ZIP、发布说明和 SHA256 校验文件。
+源码来自当前工作区，包含尚未提交的修改，不包含本机配置、缓存、旧发布包或签名私钥。
+
+更新 `app/build.gradle` 的版本号与 `CHANGELOG.md` 后，运行（需要 Python 3）：
+
+```powershell
+python tools/package_release.py --description "EPUB目录与多格式朗读"
+```
+
+脚本会重新构建 debug APK，校验版本并打包。如果依赖已缓存可追加 `--offline`。同名目录已存在时会停止，避免覆盖历史版本。
+Windows 包为现有浏览器原型，并非原生 EXE；解压后双击启动 BAT 或使用 Edge/Chrome 打开 HTML。
 
 ## 构建
 

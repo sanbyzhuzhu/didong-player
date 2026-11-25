@@ -1,11 +1,23 @@
 <resources>
-    <!-- 与 Java 侧 UiKit 保持一致的暖棕古典配色，避免系统栏与内容区割裂 -->
-    <color name="dt_bg">#160E09</color>
-    <color name="dt_panel">#26170E</color>
-    <color name="dt_panel_pressed">#3A2414</color>
-    <color name="dt_stroke">#4A3320</color>
-    <color name="dt_text">#FFF4E2</color>
-    <color name="dt_subtle">#D7B98E</color>
-    <color name="dt_accent">#FFB451</color>
-    <color name="dt_accent_pressed">#FF9E2C</color>
+    <!-- 默认冷启动色板：与默认「静谧深海」主题对齐，启动瞬间不闪屏；运行时由 UiKit 动态主题接管 -->
+    <color name="dt_bg">#0B1320</color>
+    <color name="dt_surface">#131E30</color>
+    <color name="dt_surface_hi">#1C2A42</color>
+    <color name="dt_pressed">#243552</color>
+    <color name="dt_stroke">#263754</color>
+    <color name="dt_stroke_accent">#6638BDF8</color>
+    <color name="dt_accent_wash">#1A38BDF8</color>
+    <color name="dt_glow">#4038BDF8</color>
+    <color name="dt_text">#F1F5F9</color>
+    <color name="dt_subtle">#94A3B8</color>
+    <color name="dt_muted">#64748B</color>
+    <color name="dt_accent">#38BDF8</color>
+    <color name="dt_accent_pressed">#0EA5E9</color>
+    <color name="dt_accent_dim">#1A3554</color>
+    <color name="dt_secondary">#34D399</color>
+    <color name="dt_secondary_pressed">#10B981</color>
+    <color name="dt_coral">#FF5A79</color>
+    <!-- 兼容旧 drawable 引用的别名 -->
+    <color name="dt_panel">#131E30</color>
+    <color name="dt_panel_pressed">#243552</color>
 </resources>

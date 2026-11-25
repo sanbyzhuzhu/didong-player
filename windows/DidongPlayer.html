@@ -3,29 +3,99 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>地洞播放器 Windows 尝鲜版</title>
+  <title>地洞播放器 Windows 极简版</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%230B1320'/%3E%3Cstop offset='1' stop-color='%23162B4D'/%3E%3C/linearGradient%3E%3ClinearGradient id='tri' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2338BDF8'/%3E%3Cstop offset='1' stop-color='%2334D399'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23bg)'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%2394A3B8' stroke-opacity='.4' stroke-width='2'/%3E%3Ccircle cx='32' cy='32' r='16' fill='none' stroke='%23E2E8F0' stroke-opacity='.65' stroke-width='2.4'/%3E%3Cpath d='M27 23.5c0-1.6 1.8-2.6 3.1-1.7l12.2 8.5c1.1.8 1.1 2.5 0 3.3l-12.2 8.5c-1.3.9-3.1-.1-3.1-1.7z' fill='url(%23tri)'/%3E%3C/svg%3E">
   <style>
-    :root {
+    :root, [data-theme="ocean"] {
       color-scheme: dark;
-      --bg: #160e09;
-      --panel: #24160e;
-      --panel-2: #332012;
-      --line: #5a351a;
-      --text: #fff4e2;
-      --muted: #d8b98d;
+      --bg: #0b1320;
+      --bg-glow: rgba(56, 189, 248, .12);
+      --panel: rgba(19, 30, 48, .92);
+      --panel-2: #1c2a42;
+      --input: #131e30;
+      --line: rgba(148, 163, 184, .18);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #34d399;
+      --on-accent: #071320;
+      --danger: #ff5a79;
+      --stage-bg: #09101c;
+    }
+    [data-theme="apple_light"] {
+      color-scheme: light;
+      --bg: #f2f2f7;
+      --bg-glow: rgba(0, 122, 255, .07);
+      --panel: rgba(255, 255, 255, .92);
+      --panel-2: #e9e9ef;
+      --input: #f2f2f7;
+      --line: rgba(60, 60, 67, .14);
+      --text: #1c1c1e;
+      --muted: #636366;
+      --accent: #007aff;
+      --accent-2: #34c759;
+      --on-accent: #ffffff;
+      --danger: #ff3b30;
+      --stage-bg: #f8f8fc;
+    }
+    [data-theme="apple_dark"] {
+      color-scheme: dark;
+      --bg: #000000;
+      --bg-glow: rgba(250, 45, 72, .12);
+      --panel: rgba(28, 28, 30, .94);
+      --panel-2: #2c2c2e;
+      --input: #1c1c1e;
+      --line: rgba(255, 255, 255, .12);
+      --text: #f5f5f7;
+      --muted: #aeaeb2;
+      --accent: #fa2d48;
+      --accent-2: #30d158;
+      --on-accent: #ffffff;
+      --danger: #ff453a;
+      --stage-bg: #0c0c0e;
+    }
+    [data-theme="paper"] {
+      color-scheme: light;
+      --bg: #f6f0e4;
+      --bg-glow: rgba(200, 109, 45, .09);
+      --panel: rgba(253, 251, 247, .94);
+      --panel-2: #ede3d1;
+      --input: #f6f0e4;
+      --line: rgba(110, 93, 77, .18);
+      --text: #2b2118;
+      --muted: #6e5d4d;
+      --accent: #c86d2d;
+      --accent-2: #2e8b78;
+      --on-accent: #ffffff;
+      --danger: #d94e4e;
+      --stage-bg: #f3eadb;
+    }
+    [data-theme="amber"] {
+      color-scheme: dark;
+      --bg: #0c0805;
+      --bg-glow: rgba(255, 180, 81, .12);
+      --panel: rgba(24, 16, 9, .94);
+      --panel-2: #221710;
+      --input: #181009;
+      --line: rgba(255, 180, 81, .16);
+      --text: #f5ede2;
+      --muted: #b3a08a;
       --accent: #ffb451;
-      --accent-2: #ffd36a;
-      --danger: #ff7e67;
+      --accent-2: #4fd8c4;
+      --on-accent: #140c05;
+      --danger: #ff5a79;
+      --stage-bg: #100905;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
       background:
-        radial-gradient(circle at 18% 18%, rgba(255, 180, 81, .12), transparent 28%),
-        linear-gradient(135deg, #110905 0%, var(--bg) 48%, #291407 100%);
+        radial-gradient(circle at 18% 12%, var(--bg-glow), transparent 34%),
+        var(--bg);
       color: var(--text);
-      font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Microsoft YaHei", "Segoe UI", sans-serif;
+      transition: background .2s ease, color .2s ease;
     }
     button, input, select {
       font: inherit;
@@ -33,60 +103,63 @@
     button {
       min-height: 36px;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: linear-gradient(180deg, #3b2412, #25140a);
+      border-radius: 12px;
+      background: var(--panel-2);
       color: var(--text);
       cursor: pointer;
-      padding: 7px 11px;
+      padding: 7px 12px;
+      transition: opacity .15s ease, border-color .15s ease, transform .1s ease;
     }
     button:hover { border-color: var(--accent); }
+    button:active { transform: scale(.98); }
     button.primary {
-      color: #1b0f07;
-      background: linear-gradient(180deg, #ffd36a, #ff9f32);
-      border-color: #ffd36a;
+      color: var(--on-accent);
+      background: var(--accent);
+      border-color: transparent;
       font-weight: 700;
+      border-radius: 18px;
     }
     button.danger { color: var(--danger); }
     input[type="range"] { accent-color: var(--accent); }
     select, input[type="text"] {
-      background: #120905;
+      background: var(--input);
       color: var(--text);
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 12px;
       min-height: 36px;
-      padding: 6px 9px;
+      padding: 6px 10px;
     }
     .app {
       display: grid;
-      grid-template-columns: minmax(280px, 380px) 1fr minmax(260px, 340px);
+      grid-template-columns: minmax(270px, 350px) 1fr minmax(260px, 330px);
       gap: 14px;
       padding: 14px;
       min-height: 100vh;
     }
     .panel {
-      background: rgba(36, 22, 14, .92);
-      border: 1px solid rgba(255, 180, 81, .18);
-      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 18px 50px rgba(0, 0, 0, .25);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 14px 36px rgba(0, 0, 0, .14);
     }
     .panel header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding: 12px;
-      border-bottom: 1px solid rgba(255, 180, 81, .16);
-      background: rgba(255, 180, 81, .06);
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
     }
     h1, h2 {
       margin: 0;
-      letter-spacing: 0;
+      letter-spacing: -0.01em;
     }
-    h1 { font-size: 22px; }
-    h2 { font-size: 16px; }
-    .subtle { color: var(--muted); font-size: 13px; }
-    .stack { display: grid; gap: 10px; padding: 12px; }
+    h1 { font-size: 19px; }
+    h2 { font-size: 15px; }
+    .subtle { color: var(--muted); font-size: 12px; }
+    .stack { display: grid; gap: 10px; padding: 14px; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .row > button, .row > select { flex: 1 1 auto; }
     .hidden-input {
@@ -108,15 +181,15 @@
       gap: 3px;
       width: 100%;
       text-align: left;
-      border-radius: 8px;
-      border: 1px solid rgba(255, 180, 81, .1);
-      background: rgba(255, 244, 226, .035);
-      padding: 9px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: transparent;
+      padding: 10px;
       color: var(--text);
     }
     .item.active {
       border-color: var(--accent);
-      background: rgba(255, 180, 81, .16);
+      background: var(--bg-glow);
     }
     .item .name {
       overflow: hidden;
@@ -125,33 +198,42 @@
     }
     .stage {
       display: grid;
-      grid-template-rows: auto minmax(300px, 1fr) auto;
+      grid-template-rows: auto minmax(320px, 1fr) auto;
       min-height: calc(100vh - 28px);
     }
     .brand {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 12px;
-      padding: 14px;
-      border-bottom: 1px solid rgba(255, 180, 81, .16);
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
     }
     .logo {
-      width: 52px;
-      height: 52px;
-      border-radius: 14px;
-      background:
-        radial-gradient(circle at 48% 45%, transparent 11%, #3a210f 12%, #3a210f 23%, transparent 24%),
-        radial-gradient(circle at 50% 54%, #0b0503 0 17%, transparent 18%),
-        radial-gradient(circle at 48% 46%, #ffc96d 0 44%, #e87523 45% 70%, #653215 71%);
-      border: 1px solid rgba(255, 211, 106, .45);
+      width: 44px;
+      height: 44px;
+      border-radius: 13px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #0b1320, #162b4d);
+      border: 1px solid rgba(56, 189, 248, .35);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, .25);
     }
+    .logo svg { width: 32px; height: 32px; }
     .media-box {
       display: grid;
       place-items: center;
-      padding: 14px;
+      padding: 18px;
       background:
-        radial-gradient(circle at center, rgba(255, 180, 81, .08), transparent 45%),
-        #100804;
+        radial-gradient(circle at 80% 18%, var(--bg-glow), transparent 48%),
+        var(--stage-bg);
       position: relative;
       overflow: hidden;
     }
@@ -163,44 +245,47 @@
     video {
       height: min(62vh, 680px);
       object-fit: contain;
-      background: #050302;
-      border-radius: 8px;
+      background: #000;
+      border-radius: 14px;
     }
     audio { max-width: 720px; }
     .cover {
       min-height: 260px;
-      width: min(620px, 100%);
+      width: min(600px, 100%);
       display: grid;
       place-items: center;
-      border-radius: 16px;
-      border: 1px solid rgba(255, 180, 81, .18);
+      border-radius: 22px;
+      border: 1px solid var(--line);
       background:
-        radial-gradient(circle at 50% 48%, transparent 0 10%, #2b160a 11% 22%, transparent 23%),
-        radial-gradient(circle at 50% 50%, #090402 0 20%, transparent 21%),
-        linear-gradient(135deg, #553019, #f0a145 54%, #32190c);
-      color: rgba(255, 244, 226, .9);
-      font-size: 20px;
+        radial-gradient(circle at 50% 45%, var(--bg-glow), transparent 62%),
+        var(--panel);
+      color: var(--text);
+      font-size: 19px;
+      font-weight: 600;
       text-align: center;
-      padding: 24px;
+      padding: 28px;
     }
     .lyric {
       position: absolute;
-      left: 22px;
-      right: 22px;
+      left: 24px;
+      right: 24px;
       bottom: 22px;
       text-align: center;
-      padding: 10px 14px;
-      border-radius: 10px;
-      color: var(--accent-2);
-      background: rgba(9, 4, 2, .58);
-      backdrop-filter: blur(6px);
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(12px);
       white-space: pre-wrap;
     }
     .controls {
       display: grid;
       gap: 10px;
-      padding: 12px;
-      border-top: 1px solid rgba(255, 180, 81, .16);
+      padding: 14px 16px;
+      border-top: 1px solid var(--line);
     }
     .progress-row {
       display: grid;
@@ -209,30 +294,32 @@
       gap: 10px;
       color: var(--muted);
       font-variant-numeric: tabular-nums;
+      font-size: 12px;
     }
     .status-line {
-      min-height: 22px;
+      min-height: 20px;
       color: var(--muted);
+      font-size: 12px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .reader-text {
       min-height: 170px;
-      max-height: 34vh;
+      max-height: 36vh;
       overflow: auto;
-      padding: 12px;
-      border-radius: 10px;
-      background: #120905;
-      border: 1px solid rgba(255, 180, 81, .16);
-      line-height: 1.75;
+      padding: 14px;
+      border-radius: 14px;
+      background: var(--input);
+      border: 1px solid var(--line);
+      line-height: 1.8;
       white-space: pre-wrap;
     }
     .reader-text mark {
-      background: rgba(255, 180, 81, .32);
-      color: var(--text);
+      background: var(--bg-glow);
+      color: var(--accent);
       border-radius: 4px;
-      padding: 0 2px;
+      padding: 0 3px;
     }
     @media (max-width: 1100px) {
       .app { grid-template-columns: 1fr; }
@@ -264,11 +351,32 @@
 
     <main class="panel stage">
       <section class="brand">
-        <div class="logo" aria-hidden="true"></div>
-        <div>
-          <h1>地洞播放器 Windows 尝鲜版</h1>
-          <div class="subtle" id="nowInfo">先扫描文件夹或打开文件</div>
+        <div class="brand-left">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="dlTri" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#38BDF8"/>
+                  <stop offset="1" stop-color="#34D399"/>
+                </linearGradient>
+              </defs>
+              <circle cx="32" cy="32" r="24" fill="none" stroke="#94A3B8" stroke-opacity=".42" stroke-width="2.2"/>
+              <circle cx="32" cy="32" r="17" fill="none" stroke="#E2E8F0" stroke-opacity=".72" stroke-width="2.6"/>
+              <path d="M27 23.2c0-1.7 1.9-2.7 3.3-1.8l12.4 8.7c1.2.8 1.2 2.6 0 3.4l-12.4 8.7c-1.4.9-3.3-.1-3.3-1.8z" fill="url(#dlTri)"/>
+            </svg>
+          </div>
+          <div>
+            <h1>地洞播放器 Windows 版</h1>
+            <div class="subtle" id="nowInfo">先扫描文件夹或打开文件</div>
+          </div>
         </div>
+        <select id="themeSelect" aria-label="选择主题" style="flex:0 0 auto;min-width:128px;">
+          <option value="ocean">静谧深海</option>
+          <option value="apple_light">Apple 极简白</option>
+          <option value="apple_dark">Apple 午夜黑</option>
+          <option value="paper">暖纸护眼</option>
+          <option value="amber">树洞暖琥珀</option>
+        </select>
       </section>
       <section class="media-box">
         <div class="cover" id="cover">树洞里有一只耳朵，正在等你的声音</div>
@@ -807,6 +915,17 @@
         button.onclick = () => playBg(index);
         bgList.appendChild(button);
       });
+    }
+
+    const themeSelect = document.getElementById('themeSelect');
+    const savedTheme = localStorage.getItem('didong_web_theme') || 'ocean';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    if (themeSelect) {
+      themeSelect.value = savedTheme;
+      themeSelect.onchange = () => {
+        document.documentElement.setAttribute('data-theme', themeSelect.value);
+        localStorage.setItem('didong_web_theme', themeSelect.value);
+      };
     }
 
     window.addEventListener('beforeunload', saveCurrentPosition);

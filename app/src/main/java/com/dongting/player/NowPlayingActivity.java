@@ -14,8 +14,10 @@ import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.graphics.Typeface;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -42,12 +44,6 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class NowPlayingActivity extends AppCompatActivity {
-    private static final int COLOR_BG = UiKit.BG;
-    private static final int COLOR_PANEL = UiKit.PANEL;
-    private static final int COLOR_TEXT = UiKit.TEXT;
-    private static final int COLOR_SUBTLE = UiKit.SUBTLE;
-    private static final int COLOR_ACCENT = UiKit.ACCENT;
-
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PlaybackService playbackService;
     private ExoPlayer player;
@@ -56,11 +52,17 @@ public class NowPlayingActivity extends AppCompatActivity {
     private TextView time;
     private TextView speed;
     private TextView mode;
-    private TextView visual;
+    private DongtingVisualView visual;
     private SeekBar seekBar;
-    private Button playButton;
+    private ImageView playButton;
+    private LinearLayout mediaChipRow;
+    private LinearLayout readingChipRow1;
+    private LinearLayout readingChipRow2;
     private SharedPreferences prefs;
     private boolean dragging;
+    private String appliedTheme = "";
+    private String cachedTextUri = "";
+    private List<String> cachedTextChunks = new ArrayList<>();
 
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder service) {
@@ -78,30 +80,77 @@ public class NowPlayingActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        appliedTheme = UiKit.init(this);
         prefs = getSharedPreferences("dongting_player", MODE_PRIVATE);
-        setContentView(buildContent());
+        LinearLayout content = buildContent();
+        UiKit.applySystemBarInsets(content, dp(16), dp(12));
+        setContentView(content);
+        UiKit.applyWindowTheme(this);
         bindService(new Intent(this, PlaybackService.class), connection, Context.BIND_AUTO_CREATE);
         handler.post(ticker);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (!UiKit.init(this).equals(appliedTheme)) {
+            recreate();
+        }
     }
 
     private LinearLayout buildContent() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(16), dp(16), dp(16));
-        root.setBackgroundColor(COLOR_BG);
+        root.setPadding(dp(16), dp(12), dp(16), dp(14));
+        root.setBackgroundColor(UiKit.BG);
 
-        title = label("地洞播放器", 24, COLOR_TEXT);
+        // 极简顶栏：左返回 + 中间标题 + 右主题切换
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        Button backChip = chip("返回", v -> finish());
+        topBar.addView(backChip);
+
+        LinearLayout titleBox = new LinearLayout(this);
+        titleBox.setOrientation(LinearLayout.VERTICAL);
+        titleBox.setPadding(dp(10), 0, dp(10), 0);
+        title = label("地洞播放器", 17, UiKit.TEXT);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setSingleLine(true);
+        title.setEllipsize(android.text.TextUtils.TruncateAt.END);
         title.setGravity(Gravity.CENTER);
-        subtitle = label("正在播放", 14, COLOR_SUBTLE);
+        subtitle = label("正在播放", 12, UiKit.SUBTLE);
+        subtitle.setSingleLine(true);
+        subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         subtitle.setGravity(Gravity.CENTER);
-        visual = label("耳朵在树洞里听见了声音", 18, COLOR_ACCENT);
-        visual.setGravity(Gravity.CENTER);
-        visual.setBackgroundColor(0xFF2B160A);
-        visual.setPadding(dp(12), dp(42), dp(12), dp(42));
+        titleBox.addView(title);
+        titleBox.addView(subtitle);
+        topBar.addView(titleBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        time = label("00:00 / 00:00", 14, COLOR_SUBTLE);
+        Button fontChip = chip("字号", v -> {
+            String name = UiKit.cycleStageFont(this);
+            if (visual != null) visual.invalidate();
+            android.widget.Toast.makeText(this, "舞台字号：" + name, android.widget.Toast.LENGTH_SHORT).show();
+        });
+        LinearLayout.LayoutParams fontLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        fontLp.setMargins(0, 0, dp(6), 0);
+        topBar.addView(fontChip, fontLp);
+        topBar.addView(chip("主题", v -> showThemePickerDialog()));
+        root.addView(topBar);
+
+        // 大屏沉浸歌词 / 朗读舞台
+        visual = new DongtingVisualView(this);
+        visual.setState("地洞播放器", "正在播放", "耳朵在树洞里听见了声音", false, false, 1f);
+        LinearLayout.LayoutParams visualParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        visualParams.setMargins(0, dp(12), 0, dp(12));
+        root.addView(visual, visualParams);
+
+        time = label("00:00 / 00:00", 13, UiKit.SUBTLE);
         time.setGravity(Gravity.CENTER);
-        seekBar = new SeekBar(this);
+        root.addView(time);
+
+        seekBar = UiKit.seekBar(this);
         seekBar.setMax(1000);
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
@@ -128,7 +177,8 @@ public class NowPlayingActivity extends AppCompatActivity {
                 dragging = false;
             }
         });
-        playButton = btn("播放/暂停", v -> {
+        root.addView(seekBar);
+        playButton = UiKit.roundPrimaryButton(this, R.drawable.ic_play, v -> {
             if (isReadingMode()) {
                 sendTextReaderAction(TextReaderService.ACTION_TOGGLE);
                 updateUi();
@@ -145,59 +195,89 @@ public class NowPlayingActivity extends AppCompatActivity {
             }
             updateUi();
         });
-        UiKit.makePrimary(playButton);
-        speed = label("1.00x", 14, COLOR_SUBTLE);
-        speed.setGravity(Gravity.CENTER);
-        mode = label("顺序播放", 14, COLOR_SUBTLE);
-        mode.setGravity(Gravity.CENTER);
+        speed = label("", 12, UiKit.MUTED);
+        mode = label("", 12, UiKit.MUTED);
 
-        root.addView(title);
-        root.addView(subtitle);
-        root.addView(visual, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        root.addView(time);
-        root.addView(seekBar);
-        root.addView(row(
-                btn("上一首", v -> {
-                    if (isReadingMode()) {
-                        sendTextReaderAction(TextReaderService.ACTION_PREVIOUS);
-                    } else if (player != null && player.hasPreviousMediaItem()) {
-                        player.seekToPreviousMediaItem();
-                    }
-                    updateUi();
-                }),
-                playButton,
-                btn("下一首", v -> {
-                    if (isReadingMode()) {
-                        sendTextReaderAction(TextReaderService.ACTION_NEXT);
-                    } else if (player != null && player.hasNextMediaItem()) {
-                        player.seekToNextMediaItem();
-                    }
-                    updateUi();
-                })
-        ));
-        root.addView(row(
-                btn("快退15秒", v -> seekBy(-15000)),
-                btn("快进30秒", v -> seekBy(30000)),
-                btn("回播放器", v -> finish())
-        ));
-        root.addView(row(
-                btn("减速", v -> changeSpeed(-0.25f)),
-                btn("加速", v -> changeSpeed(0.25f)),
-                btn("循环模式", v -> cycleRepeatMode())
-        ));
-        root.addView(row(
-                btn("\u76ee\u5f55", v -> showReadingCatalogDialog()),
-                btn("\u4e66\u7b7e", v -> showReadingBookmarksDialog()),
-                btn("\u52a0\u4e66\u7b7e", v -> addReadingBookmark())
-        ));
-        root.addView(row(
-                btn("\u641c\u7d22", v -> showReadingSearchDialog()),
-                btn("\u4e0a\u4e00\u6bb5", v -> seekReadingByDelta(-1)),
-                btn("\u4e0b\u4e00\u6bb5", v -> seekReadingByDelta(1))
-        ));
-        root.addView(speed);
-        root.addView(mode);
+        // 主控排：上一首 / 大圆播放钮 / 下一首
+        LinearLayout transport = new LinearLayout(this);
+        transport.setOrientation(LinearLayout.HORIZONTAL);
+        transport.setGravity(Gravity.CENTER);
+        ImageView prevButton = UiKit.iconButton(this, R.drawable.ic_prev, UiKit.TEXT, v -> {
+            if (isReadingMode()) {
+                sendTextReaderAction(TextReaderService.ACTION_PREVIOUS);
+            } else if (player != null && player.hasPreviousMediaItem()) {
+                player.seekToPreviousMediaItem();
+            }
+            updateUi();
+        });
+        LinearLayout.LayoutParams prevParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        prevParams.setMargins(dp(12), dp(6), dp(12), dp(6));
+        transport.addView(prevButton, prevParams);
+        LinearLayout.LayoutParams playParams = new LinearLayout.LayoutParams(dp(74), dp(74));
+        playParams.setMargins(dp(20), dp(4), dp(20), dp(4));
+        transport.addView(playButton, playParams);
+        ImageView nextButton = UiKit.iconButton(this, R.drawable.ic_next, UiKit.TEXT, v -> {
+            if (isReadingMode()) {
+                sendTextReaderAction(TextReaderService.ACTION_NEXT);
+            } else if (player != null && player.hasNextMediaItem()) {
+                player.seekToNextMediaItem();
+            }
+            updateUi();
+        });
+        LinearLayout.LayoutParams nextParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+        nextParams.setMargins(dp(12), dp(6), dp(12), dp(6));
+        transport.addView(nextButton, nextParams);
+        root.addView(transport);
+
+        // 按模式智能显示：影音模式只显示影音控制，朗读模式只显示朗读控制
+        mediaChipRow = row(
+                chip("-15s", v -> seekBy(-15000)),
+                chip("+30s", v -> seekBy(30000)),
+                chip("减速", v -> changeSpeed(-0.25f)),
+                chip("加速", v -> changeSpeed(0.25f)),
+                chip("循环", v -> cycleRepeatMode())
+        );
+        root.addView(mediaChipRow);
+
+        readingChipRow1 = row(
+                chip("目录", v -> showReadingCatalogDialog()),
+                chip("书签", v -> showReadingBookmarksDialog()),
+                chip("加书签", v -> addReadingBookmark()),
+                chip("搜索", v -> showReadingSearchDialog())
+        );
+        root.addView(readingChipRow1);
+
+        readingChipRow2 = row(
+                chip("上一段", v -> seekReadingByDelta(-1)),
+                chip("下一段", v -> seekReadingByDelta(1))
+        );
+        root.addView(readingChipRow2);
+
+        // 底部状态行：左速度、右循环模式
+        LinearLayout statusRow = new LinearLayout(this);
+        statusRow.setOrientation(LinearLayout.HORIZONTAL);
+        statusRow.setPadding(dp(2), dp(6), dp(2), dp(2));
+        statusRow.addView(speed, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        mode.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        statusRow.addView(mode, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(statusRow);
         return root;
+    }
+
+    private void showThemePickerDialog() {
+        String[] labels = new String[UiKit.THEME_KEYS.length];
+        int checked = 0;
+        for (int i = 0; i < UiKit.THEME_KEYS.length; i++) {
+            if (UiKit.THEME_KEYS[i].equals(UiKit.CURRENT_THEME)) checked = i;
+            labels[i] = UiKit.THEME_NAMES[i] + "  ·  " + UiKit.THEME_DESCS[i];
+        }
+        UiKit.showChoiceSheet(this, "选择外观主题", labels, checked, which -> {
+            String chosen = UiKit.THEME_KEYS[which];
+            if (!chosen.equals(UiKit.CURRENT_THEME)) {
+                UiKit.setTheme(this, chosen);
+                recreate();
+            }
+        });
     }
 
     private void seekBy(long delta) {
@@ -256,7 +336,11 @@ public class NowPlayingActivity extends AppCompatActivity {
     };
 
     private void updateUi() {
-        if (isReadingMode()) {
+        boolean reading = isReadingMode();
+        if (mediaChipRow != null) mediaChipRow.setVisibility(reading ? android.view.View.GONE : android.view.View.VISIBLE);
+        if (readingChipRow1 != null) readingChipRow1.setVisibility(reading ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (readingChipRow2 != null) readingChipRow2.setVisibility(reading ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (reading) {
             updateReadingUi();
             return;
         }
@@ -271,12 +355,17 @@ public class NowPlayingActivity extends AppCompatActivity {
         long position = player.getCurrentPosition();
         time.setText(MediaUtils.formatMs(position) + " / " + MediaUtils.formatMs(duration));
         if (!dragging && duration > 0 && duration != C.TIME_UNSET) seekBar.setProgress((int) Math.max(0, Math.min(1000, position * 1000L / duration)));
-        playButton.setText(player.isPlaying() ? "暂停" : "播放");
+        playButton.setImageResource(player.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
+        playButton.setContentDescription(player.isPlaying() ? "暂停" : "播放");
         speed.setText(String.format(Locale.CHINA, "播放速度 %.2fx", player.getPlaybackParameters().speed));
         String repeat = player.getRepeatMode() == Player.REPEAT_MODE_ONE ? "单曲循环"
                 : player.getRepeatMode() == Player.REPEAT_MODE_ALL ? "列表循环" : "顺序播放";
         mode.setText(repeat);
-        if (visual != null) visual.setText(nowPlayingBody(position));
+        if (visual != null) {
+            visual.setState(String.valueOf(title.getText()), String.valueOf(subtitle.getText()),
+                    nowPlayingBody(position), player.isPlaying(), false,
+                    Math.max(0.6f, player.getPlaybackParameters().speed));
+        }
     }
 
     private boolean isReadingMode() {
@@ -285,38 +374,51 @@ public class NowPlayingActivity extends AppCompatActivity {
 
     private void updateReadingUi() {
         String uri = prefs.getString("lastTextUri", "");
-        String name = uri.isEmpty() ? "TXT 朗读" : displayName(Uri.parse(uri));
+        String name = uri.isEmpty() ? "电子书朗读" : displayName(Uri.parse(uri));
         title.setText(name);
-        subtitle.setText(TextReaderService.isPaused() ? "TXT朗读 · 已暂停" : "TXT朗读 · 正在朗读");
+        subtitle.setText(TextReaderService.isPaused() ? "电子书朗读 · 已暂停" : "电子书朗读 · 正在朗读");
         time.setText(readingProgressText(uri));
         if (!dragging) seekBar.setProgress(readingProgressValue(uri));
-        playButton.setText(TextReaderService.isPaused() ? "继续" : "暂停");
+        playButton.setImageResource(TextReaderService.isPaused() ? R.drawable.ic_play : R.drawable.ic_pause);
+        playButton.setContentDescription(TextReaderService.isPaused() ? "继续" : "暂停");
         speed.setText("朗读由系统 TTS 控制");
         mode.setText("上一首/下一首 = 上一段/下一段");
-        if (visual != null) visual.setText(currentReadingChunk());
+        if (visual != null) {
+            visual.setState(String.valueOf(title.getText()), String.valueOf(subtitle.getText()),
+                    currentReadingChunk(), false, true, 1f);
+        }
+    }
+
+    private List<String> getCachedTextChunks(String uri) {
+        if (uri == null || uri.isEmpty()) return new ArrayList<>();
+        if (!uri.equals(cachedTextUri) || cachedTextChunks.isEmpty()) {
+            cachedTextUri = uri;
+            String text = readText(Uri.parse(uri));
+            cachedTextChunks = text.trim().isEmpty() ? new ArrayList<>() : splitTextForTts(text);
+        }
+        return cachedTextChunks;
     }
 
     private String readingProgressText(String uri) {
-        if (uri == null || uri.isEmpty()) return "TXT 朗读";
-        String text = readText(Uri.parse(uri));
-        List<String> chunks = splitTextForTts(text);
-        if (chunks.isEmpty()) return "TXT 朗读";
+        if (uri == null || uri.isEmpty()) return "电子书朗读";
+        List<String> chunks = getCachedTextChunks(uri);
+        if (chunks.isEmpty()) return "电子书朗读";
         int index = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + uri, 0), chunks.size() - 1));
         return "第 " + (index + 1) + " / " + chunks.size() + " 段";
     }
 
     private String readingProgressTextForProgress(int progress) {
         String uri = prefs.getString("lastTextUri", "");
-        if (uri == null || uri.isEmpty()) return "\u0054\u0058\u0054 \u6717\u8bfb";
-        List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
-        if (chunks.isEmpty()) return "\u0054\u0058\u0054 \u6717\u8bfb";
+        if (uri == null || uri.isEmpty()) return "电子书朗读";
+        List<String> chunks = getCachedTextChunks(uri);
+        if (chunks.isEmpty()) return "电子书朗读";
         int index = Math.max(0, Math.min(chunks.size() - 1, progress * chunks.size() / 1001));
-        return "\u7b2c " + (index + 1) + " / " + chunks.size() + " \u6bb5";
+        return "第 " + (index + 1) + " / " + chunks.size() + " 段";
     }
 
     private int readingProgressValue(String uri) {
         if (uri == null || uri.isEmpty()) return 0;
-        List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
+        List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return 0;
         int index = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + uri, 0), chunks.size() - 1));
         return (int) Math.max(0, Math.min(1000, (index * 1000L) / Math.max(1, chunks.size() - 1)));
@@ -325,7 +427,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     private void seekReadingByProgress(int progress) {
         String uri = prefs.getString("lastTextUri", "");
         if (uri == null || uri.isEmpty()) return;
-        List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
+        List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return;
         int index = Math.max(0, Math.min(chunks.size() - 1, progress * chunks.size() / 1001));
         seekReadingChunk(index);
@@ -334,26 +436,33 @@ public class NowPlayingActivity extends AppCompatActivity {
     private void seekReadingByDelta(int delta) {
         String uri = prefs.getString("lastTextUri", "");
         if (uri == null || uri.isEmpty()) return;
-        List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
+        List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return;
         int current = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + uri, 0), chunks.size() - 1));
         seekReadingChunk(current + delta);
     }
 
     private void seekReadingChunk(int index) {
+        seekReadingPosition(new TtsText.Position(index, 0));
+    }
+
+    private void seekReadingPosition(TtsText.Position position) {
         String uri = prefs.getString("lastTextUri", "");
         if (uri == null || uri.isEmpty()) return;
-        List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
+        List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return;
-        int safe = Math.max(0, Math.min(chunks.size() - 1, index));
-        prefs.edit()
-                .putInt("ttsChunk:" + uri, safe)
-                .putInt("ttsRangeStart:" + uri, 0)
-                .putInt("ttsRangeEnd:" + uri, 0)
-                .apply();
+        int safe = Math.max(0, Math.min(chunks.size() - 1, position.chunk));
+        int offset = TtsText.sentenceAt(chunks.get(safe), position.offset).start;
+        prefs.edit().putInt("ttsChunk:" + uri, safe).putInt("ttsSentenceChunk:" + uri, safe)
+                .putInt("ttsSentenceStart:" + uri, offset).putInt("ttsSentenceEnd:" + uri, offset)
+                .putInt("ttsRangeStart:" + uri, offset).putInt("ttsRangeEnd:" + uri, offset)
+                .putString("ttsVisualMode:" + uri, "sentence").apply();
+        boolean loaded = TextReaderService.isReading(uri);
         startService(new Intent(this, TextReaderService.class)
-                .setAction(TextReaderService.ACTION_SEEK_CHUNK)
-                .putExtra(TextReaderService.EXTRA_CHUNK_INDEX, safe));
+                .setAction(loaded ? TextReaderService.ACTION_SEEK_CHUNK : TextReaderService.ACTION_START)
+                .putExtra(TextReaderService.EXTRA_TEXT_URI, uri)
+                .putExtra(TextReaderService.EXTRA_CHUNK_INDEX, safe)
+                .putExtra(TextReaderService.EXTRA_SENTENCE_OFFSET, offset));
         updateUi();
     }
 
@@ -386,22 +495,32 @@ public class NowPlayingActivity extends AppCompatActivity {
     private void showReadingCatalogDialog() {
         String uri = prefs.getString("lastTextUri", "");
         if (uri == null || uri.isEmpty()) return;
-        List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
-        if (chunks.isEmpty()) return;
-        List<Integer> targets = new ArrayList<>();
-        List<String> labels = new ArrayList<>();
-        for (int i = 0; i < chunks.size(); i++) {
-            String preview = chunkPreview(chunks.get(i));
-            if (looksLikeChapter(preview) || labels.size() < 80) {
-                targets.add(i);
-                labels.add((i + 1) + ". " + preview);
+        try {
+            ReadableBook book = BookLoader.load(this, Uri.parse(uri));
+            List<String> chunks = splitTextForTts(book.text);
+            if (chunks.isEmpty()) return;
+            List<TtsText.Position> targets = new ArrayList<>();
+            List<String> labels = new ArrayList<>();
+            if (!book.chapters.isEmpty()) {
+                for (ReadableBook.Chapter chapter : book.chapters) {
+                    targets.add(TtsText.positionForOffset(book.text, chunks, chapter.offset));
+                    labels.add((chapter.depth > 0 ? "↳ " : "") + chapter.title);
+                }
+            } else {
+                for (int i = 0; i < chunks.size(); i++) {
+                    String preview = chunkPreview(chunks.get(i));
+                    if (looksLikeChapter(preview) || labels.size() < 80) {
+                        targets.add(new TtsText.Position(i, 0));
+                        labels.add((i + 1) + ". " + preview);
+                    }
+                }
             }
+            new AlertDialog.Builder(this).setTitle("章节目录")
+                    .setItems(labels.toArray(new String[0]), (dialog, which) -> seekReadingPosition(targets.get(which)))
+                    .setNegativeButton("关闭", null).show();
+        } catch (java.io.IOException error) {
+            android.widget.Toast.makeText(this, "目录读取失败：" + error.getMessage(), android.widget.Toast.LENGTH_LONG).show();
         }
-        new AlertDialog.Builder(this)
-                .setTitle("\u76ee\u5f55")
-                .setItems(labels.toArray(new String[0]), (dialog, which) -> seekReadingChunk(targets.get(which)))
-                .setNegativeButton("\u5173\u95ed", null)
-                .show();
     }
 
     private void addReadingBookmark() {
@@ -520,83 +639,36 @@ public class NowPlayingActivity extends AppCompatActivity {
     private String currentReadingChunk() {
         String uri = prefs.getString("lastTextUri", "");
         if (uri.isEmpty()) return "";
-        String text = readText(Uri.parse(uri));
-        if (text.trim().isEmpty()) return "";
-        List<String> chunks = splitTextForTts(text);
+        List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return "";
         int index = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + uri, 0), chunks.size() - 1));
-        boolean chunkMode = "chunk".equals(prefs.getString("ttsVisualMode:" + uri, ""));
-        int start = chunkMode ? -1 : prefs.getInt("ttsRangeStart:" + uri, -1);
-        int end = chunkMode ? -1 : prefs.getInt("ttsRangeEnd:" + uri, -1);
+        int start = prefs.getInt("ttsSentenceStart:" + uri, prefs.getInt("ttsRangeStart:" + uri, 0));
+        int end = prefs.getInt("ttsSentenceEnd:" + uri, start);
         return readingWindowText(chunks, index, start, end);
     }
 
     private String readingWindowText(List<String> chunks, int index, int rangeStart, int rangeEnd) {
-        if (chunks == null || chunks.isEmpty()) return "";
-        index = Math.max(0, Math.min(index, chunks.size() - 1));
-        StringBuilder builder = new StringBuilder();
-        builder.append("朗读文字  ").append(index + 1).append("/").append(chunks.size()).append('\n');
-        builder.append("▶ ").append(readingCurrentPreview(chunks.get(index), rangeStart, rangeEnd));
-        return builder.toString();
+        return TtsText.readingWindow(chunks, index, rangeStart);
     }
 
-    private String readingCurrentPreview(String text, int rangeStart, int rangeEnd) {
-        String value = text == null ? "" : text.replace('\n', ' ').trim();
-        if (rangeStart < 0 || rangeStart >= value.length()) return value;
-        rangeEnd = Math.max(rangeStart + 1, Math.min(rangeEnd, value.length()));
-        String before = value.substring(0, rangeStart);
-        String current = value.substring(rangeStart, rangeEnd);
-        String after = value.substring(rangeEnd);
-        return before + "【" + current + "】" + after;
-    }
+
 
     private List<String> splitTextForTts(String text) {
-        List<String> chunks = new ArrayList<>();
-        String normalized = text.replace("\r\n", "\n").replace('\r', '\n').trim();
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < normalized.length(); i++) {
-            char ch = normalized.charAt(i);
-            builder.append(ch);
-            boolean boundary = ch == '\n' || ch == '。' || ch == '！' || ch == '？' || ch == '.' || ch == '!' || ch == '?';
-            if (builder.length() >= 240 && boundary) {
-                chunks.add(builder.toString().trim());
-                builder.setLength(0);
-            } else if (builder.length() >= 480) {
-                chunks.add(builder.toString().trim());
-                builder.setLength(0);
-            }
-        }
-        if (builder.length() > 0) chunks.add(builder.toString().trim());
-        if (chunks.isEmpty()) chunks.add(normalized);
-        return chunks;
+        return TtsText.splitChunks(text);
     }
 
     private String readText(Uri uri) {
-        if (isEpubUri(uri)) return readEpubText(uri);
-        try (InputStream input = getContentResolver().openInputStream(uri);
-             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            if (input == null) return "";
-            byte[] buffer = new byte[4096];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            String text = MediaUtils.decodeTextBytes(output.toByteArray());
-            return isJsonUri(uri) ? jsonToReadableText(text) : text;
-        } catch (Exception ignored) {
+        try {
+            return BookLoader.load(this, uri).text;
+        } catch (java.io.IOException | RuntimeException error) {
+            android.util.Log.w("BookReader", "读取电子书失败", error);
             return "";
         }
     }
 
-    private boolean isJsonUri(Uri uri) {
-        String mime = getContentResolver().getType(uri);
-        String name = displayName(uri).toLowerCase(Locale.ROOT);
-        return "application/json".equals(mime) || name.endsWith(".json");
-    }
 
-    private boolean isEpubUri(Uri uri) {
-        String mime = getContentResolver().getType(uri);
-        String name = displayName(uri).toLowerCase(Locale.ROOT);
-        return "application/epub+zip".equals(mime) || name.endsWith(".epub");
-    }
+
+
 
     private String displayName(Uri uri) {
         try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
@@ -613,72 +685,13 @@ public class NowPlayingActivity extends AppCompatActivity {
         return name == null ? "" : name;
     }
 
-    private String readEpubText(Uri uri) {
-        StringBuilder text = new StringBuilder();
-        try (InputStream input = getContentResolver().openInputStream(uri);
-             ZipInputStream zip = new ZipInputStream(input)) {
-            ZipEntry entry;
-            byte[] buffer = new byte[4096];
-            while ((entry = zip.getNextEntry()) != null) {
-                String name = entry.getName().toLowerCase(Locale.ROOT);
-                if (entry.isDirectory() || !(name.endsWith(".xhtml") || name.endsWith(".html") || name.endsWith(".htm") || name.endsWith(".txt"))) continue;
-                ByteArrayOutputStream output = new ByteArrayOutputStream();
-                int read;
-                while ((read = zip.read(buffer)) != -1) output.write(buffer, 0, read);
-                text.append('\n').append(stripHtml(MediaUtils.decodeTextBytes(output.toByteArray())));
-            }
-        } catch (Exception ignored) {
-        }
-        return text.toString().trim();
-    }
 
-    private String stripHtml(String html) {
-        return html.replaceAll("(?is)<script.*?</script>", " ")
-                .replaceAll("(?is)<style.*?</style>", " ")
-                .replaceAll("(?i)<br\\s*/?>", "\n")
-                .replaceAll("(?i)</p>|</h[1-6]>|</div>|</li>", "\n")
-                .replaceAll("<[^>]+>", " ")
-                .replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replaceAll("[ \\t\\x0B\\f\\r]+", " ")
-                .replaceAll("\\n{3,}", "\n\n")
-                .trim();
-    }
 
-    private String jsonToReadableText(String raw) {
-        StringBuilder builder = new StringBuilder();
-        try {
-            Object root = raw.trim().startsWith("[") ? new JSONArray(raw.trim()) : new JSONObject(raw.trim());
-            appendJsonValue(builder, root, "");
-            String result = builder.toString().trim();
-            return result.isEmpty() ? raw : result;
-        } catch (JSONException ignored) {
-            return raw;
-        }
-    }
 
-    private void appendJsonValue(StringBuilder builder, Object value, String prefix) throws JSONException {
-        if (value instanceof JSONObject) {
-            JSONObject object = (JSONObject) value;
-            JSONArray names = object.names();
-            if (names == null) return;
-            for (int i = 0; i < names.length(); i++) {
-                String key = names.getString(i);
-                appendJsonValue(builder, object.get(key), key);
-            }
-        } else if (value instanceof JSONArray) {
-            JSONArray array = (JSONArray) value;
-            for (int i = 0; i < array.length(); i++) appendJsonValue(builder, array.get(i), prefix);
-        } else if (value != null && value != JSONObject.NULL) {
-            String text = String.valueOf(value).trim();
-            if (!text.isEmpty()) {
-                if (!prefix.isEmpty()) builder.append(prefix).append("：");
-                builder.append(text).append('\n');
-            }
-        }
-    }
+
+
+
+
 
     @Override
     protected void onDestroy() {
@@ -696,6 +709,10 @@ public class NowPlayingActivity extends AppCompatActivity {
 
     private Button btn(String text, android.view.View.OnClickListener listener) {
         return UiKit.button(this, text, listener);
+    }
+
+    private Button chip(String text, android.view.View.OnClickListener listener) {
+        return UiKit.chip(this, text, listener);
     }
 
     private TextView label(String text, int sp, int color) {

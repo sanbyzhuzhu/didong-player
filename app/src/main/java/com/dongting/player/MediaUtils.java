@@ -54,6 +54,9 @@ final class MediaUtils {
     static String formatMs(long ms) {
         if (ms == C.TIME_UNSET || ms < 0) return "--:--";
         long total = ms / 1000;
+        if (total >= 3600) {
+            return String.format(Locale.CHINA, "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60);
+        }
         return String.format(Locale.CHINA, "%02d:%02d", total / 60, total % 60);
     }
 

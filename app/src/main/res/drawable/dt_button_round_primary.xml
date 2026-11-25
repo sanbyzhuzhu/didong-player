@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 播放/暂停大圆钮：琥珀光晕外圈 + 渐变主体 -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#33000000">
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="oval">
+                    <solid android:color="@color/dt_glow" />
+                </shape>
+            </item>
+            <item android:top="3dp" android:bottom="3dp" android:left="3dp" android:right="3dp">
+                <shape android:shape="oval">
+                    <gradient
+                        android:angle="270"
+                        android:startColor="@color/dt_accent"
+                        android:endColor="@color/dt_accent_pressed" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</ripple>

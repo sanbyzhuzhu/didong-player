@@ -33,6 +33,7 @@ import androidx.media3.session.MediaSession;
  * 并且【不自动恢复】——必须由用户重新点击播放。暂停期间服务保持前台，
  * 避免被系统回收后丢失播放状态。
  */
+@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public class PlaybackService extends Service {
     static final String ACTION_TOGGLE = "com.dongting.player.TOGGLE";
     static final String ACTION_PREVIOUS = "com.dongting.player.PREVIOUS";
@@ -53,6 +54,7 @@ public class PlaybackService extends Service {
     private AudioFocusRequest focusRequest;
     private boolean focusRequested = false;
     private boolean noisyReceiverRegistered = false;
+    private android.graphics.Bitmap defaultArtwork;
 
     private final AudioManager.OnAudioFocusChangeListener focusListener = focusChange -> {
         if (focusChange == AudioManager.AUDIOFOCUS_LOSS
@@ -264,8 +266,13 @@ public class PlaybackService extends Service {
         Notification notification = buildNotification();
         // 暂停时也保持前台服务，避免后台听书被系统回收后从头开始
         try {
-            startForeground(NOTIFICATION_ID, notification);
-        } catch (RuntimeException ignored) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -294,6 +301,7 @@ public class PlaybackService extends Service {
                 .setContentTitle(title)
                 .setContentText(subtitle)
                 .setSmallIcon(R.drawable.ic_stat_dongting)
+                .setColor(UiKit.ACCENT)
                 .setContentIntent(contentIntent)
                 // 不再用 setDeleteIntent 停服务：划掉通知不会杀死后台播放
                 .setOngoing(player.isPlaying())
@@ -304,11 +312,20 @@ public class PlaybackService extends Service {
                         player.isPlaying() ? "暂停" : "播放", action(ACTION_TOGGLE, 2))
                 .addAction(android.R.drawable.ic_media_next, "下一首", action(ACTION_NEXT, 3))
                 .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", action(ACTION_STOP, 4));
+        if (defaultArtwork == null) {
+            try {
+                defaultArtwork = android.graphics.BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+            } catch (Throwable ignored) {
+            }
+        }
+        if (defaultArtwork != null) {
+            builder.setLargeIcon(defaultArtwork);
+        }
         long duration = player.getDuration();
         long position = player.getCurrentPosition();
         if (duration > 0 && duration != C.TIME_UNSET) {
             builder.setProgress(1000, (int) Math.max(0, Math.min(1000, position * 1000L / duration)), false)
-                    .setSubText(formatMs(position) + " / " + formatMs(duration));
+                    .setSubText(MediaUtils.formatMs(position) + " / " + MediaUtils.formatMs(duration));
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             builder.setChannelId(CHANNEL_ID);
@@ -335,16 +352,6 @@ public class PlaybackService extends Service {
         channel.setDescription("地洞播放器后台播放控制");
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) manager.createNotificationChannel(channel);
-    }
-
-    private String formatMs(long ms) {
-        if (ms < 0 || ms == C.TIME_UNSET) return "00:00";
-        long total = ms / 1000;
-        long seconds = total % 60;
-        long minutes = (total / 60) % 60;
-        long hours = total / 3600;
-        if (hours > 0) return String.format(java.util.Locale.CHINA, "%d:%02d:%02d", hours, minutes, seconds);
-        return String.format(java.util.Locale.CHINA, "%02d:%02d", minutes, seconds);
     }
 
     public class LocalBinder extends Binder {
