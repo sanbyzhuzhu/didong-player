@@ -8,13 +8,16 @@
 
 [GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.20)
 
-本版重点：EPUB 正文顺序与章节目录、Markdown / HTML / DOCX 纯文字朗读、逐句高亮跟随。更新细节见 [Changelog](CHANGELOG.md)，可转发素材见 [V0.0.20 宣发文案与配图](docs/promo/v0.0.20/宣发文案.md)。
+本版重点：EPUB 正文顺序与章节目录、Markdown / HTML / DOCX 纯文字朗读、逐句高亮跟随。
 
 ## 界面预览
 
-| 主界面 | 播放页 | TXT 朗读 |
-| --- | --- | --- |
-| <img src="docs/images/home-screen.png" alt="地洞播放器主界面预览" width="240"> | <img src="docs/images/now-playing-screen.png" alt="地洞播放器播放页预览" width="240"> | <img src="docs/images/reader-screen.png" alt="地洞播放器 TXT 朗读预览" width="240"> |
+<img width="1242" height="1660" alt="02_icon_evolution_1242x1660" src="https://github.com/user-attachments/assets/06cc9ca0-3958-4df7-a85a-eb998ec2e73a" />
+<img width="1242" height="1660" alt="01_cover_hero_1242x1660" src="https://github.com/user-attachments/assets/6e2cee2d-4ae9-415b-9f23-90203885290a" />
+
+<img width="1242" height="1660" alt="05_features_bento_1242x1660" src="https://github.com/user-attachments/assets/42a3ef32-fcd8-4109-bd74-0468fcc85214" />
+<img width="1242" height="1660" alt="04_five_themes_1242x1660" src="https://github.com/user-attachments/assets/b909dbcd-fc43-49bf-9529-7bbb3f4f8e93" />
+<img width="1242" height="1660" alt="03_reading_epub_txt_1242x1660" src="https://github.com/user-attachments/assets/62a2f8dc-cc67-4c62-895f-05abef9a18ec" />
 
 ## 功能特性
 
