@@ -2,13 +2,13 @@
 
 地洞播放器-一款无广告开源的本地离线播放器（非常小，才8M左右），安卓优先，面向听课、听书、整理本地影音和长文本朗读等场景，可以支持音频和视频的循环播放、AB点重复播放、倍速播放，支持电子书（TXT、epub,json,md,docx）文本的朗读，文本以字幕的形式一句一句跟读，让你实现边听边看的效果，朗读时可设置背景音乐，朗读用本地声音源，不需额外花钱。
 
-当前版本：`V0.0.21`
+当前版本：`V0.0.24`
 
 ![V0.0.20 电子书朗读更新](docs/promo/v0.0.20/wechat-cover-900x383.png)
 
-[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.21)
+[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.24)
 
-本版重点：设置页底部的静默更新入口，有新版只显示红点，可忽略版本，二次确认后才前往下载。保留 EPUB 目录、Markdown / HTML / DOCX 纯文字朗读和逐句高亮。详见 [静默更新说明](docs/quiet-updates.md) 与 [Changelog](CHANGELOG.md)。上方配图及 [V0.0.20 宣发素材](docs/promo/v0.0.20/宣发文案.md) 为上一版电子书功能介绍。
+本版重点：新增 [Wi-Fi 文件传输](docs/wifi-transfer.md)，同一局域网的电脑或手机用浏览器批量上传影音和电子书，完成后加入播放列表或书架；支持进度、取消、同名文件保留和已收文件下载。另包含 [WebDAV 云端文件](docs/webdav.md)：账号密码加密保存在本机，可浏览目录、在线播放影音及下载电子书后离线朗读。保留设置页底部的静默更新入口及原有电子书功能，详见 [Changelog](CHANGELOG.md)。下方配图及 [V0.0.20 宣发素材](docs/promo/v0.0.20/宣发文案.md) 是较早版本的功能介绍。
 
 ## 界面预览
 
@@ -24,6 +24,8 @@
 
 ## 功能特性
 
+- Android 支持 Wi-Fi 局域网传输：手机手动开启，电脑/另一部手机浏览器批量上传影音与书籍，离开页面即关闭，完成后入库播放或朗读。
+- Android 支持 WebDAV 目录浏览、鉴权在线播放及文件/目录下载；连接配置加密保存在本机，电子书下载后可离线朗读。
 - 扫描 SAF 文件夹，递归识别常见音频/视频格式。
 - 支持直接打开单个音频/视频文件，并维护“打开的文件”列表。
 - 按文件名自然排序，文件名包含数字时优先按数字排序。
@@ -45,15 +47,15 @@
 
 ## 下载
 
-Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.21 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.21)。Gitee 同步源码、更新清单和说明，可通过本页下载入口获取相同安装包。先安装 V0.0.21，后续版本才可使用新增的红点更新提示。
+Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.24 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.24)。Gitee 同步源码、版本标签、更新清单和说明，可通过本页下载入口获取相同安装包。V0.0.21 及以上的 Android 客户端会在设置页底部静默提示新版，不弹窗、不自动下载安装。
 
 本地本次双平台发布归档位于：
 
 ```text
-release/v0.0.21_静默更新完整发布/
+release/v0.0.24_WiFi无线传输双平台发布/
 ```
 
-当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为浏览器原型，本次新增电子书解析针对 Android。
+当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为免安装浏览器原型，Wi-Fi 接收服务与 WebDAV 接入针对 Android。
 
 ### 统一发布打包
 
