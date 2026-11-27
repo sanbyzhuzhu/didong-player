@@ -71,6 +71,12 @@ python tools/package_release.py --description "设置页静默更新提醒"
 脚本会重新构建 debug APK，校验版本并打包。如果依赖已缓存可追加 `--offline`。同名目录已存在时会停止，避免覆盖历史版本。
 Windows 包为现有浏览器原型，并非原生 EXE；解压后双击启动 BAT 或使用 Edge/Chrome 打开 HTML。
 
+## GitHub → Gitee 自动同步
+
+支持 GitHub `main` 更新后同步 Gitee 源码、标签与更新清单，以及发行版公开后同步安装包等附件。工作流默认未启用；仓库所有者需在 GitHub Actions 中配置专用 Secret `GITEE_TOKEN` 和 Variable `GITEE_SYNC_ENABLED=true`。不会读取或迁移本机登录密码。
+
+首次配置后，可手动运行 **Sync to Gitee**，填写 `release_tag=v0.0.24` 补齐现有版本附件。历史提交、同名标签和已有附件都有保护，详见 [自动同步配置说明](docs/gitee-sync.md)。
+
 ## 构建
 
 环境要求：

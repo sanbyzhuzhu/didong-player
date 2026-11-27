@@ -13,6 +13,7 @@ from validate_update_feed import validate as validate_update_feed
 
 
 ROOT = Path(__file__).resolve().parents[1]
+NOTES_NAME = "release-notes.md"
 EXCLUDED_DIRS = {".git", ".gradle", ".omx", ".idea", ".vscode", "build",
                  "release", "captures", "__pycache__", "node_modules", ".venv"}
 
@@ -140,7 +141,7 @@ def main():
                   "## 下次发布\n\n"
                   "先更新 app/build.gradle 的 versionCode/versionName 及 CHANGELOG.md，执行：\n\n"
                   '`python tools/package_release.py --description "本次说明"`\n')
-        (stage / "发布说明.md").write_text(notes, encoding="utf-8-sig")
+        (stage / NOTES_NAME).write_text(notes, encoding="utf-8-sig")
         manifest = {"version": version, "versionCode": version_code,
                     "description": description, "androidBuildType": "debug",
                     "source": "current working tree, including uncommitted changes",

@@ -2,25 +2,52 @@ name: Sync to Gitee
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '补同步已公开的 GitHub 发行版，例如 v0.0.24；留空仅同步源码'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-to-gitee
+  cancel-in-progress: false
 
 jobs:
   sync:
+    # Explicit opt-in. Desktop login credentials are never migrated into CI.
+    if: github.repository == 'sanbyzhuzhu/didong-player' && vars.GITEE_SYNC_ENABLED == 'true'
     runs-on: ubuntu-latest
-
+    timeout-minutes: 25
     steps:
-      - name: Checkout full history
+      - name: Checkout trusted main and version tags
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Push mirror to Gitee
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Sync source, tag and optional release attachments
         env:
-          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_SYNC_ENABLED: ${{ vars.GITEE_SYNC_ENABLED }}
+          GITEE_USERNAME: ${{ vars.GITEE_USERNAME || 'sanbyzhu' }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPOSITORY: sanbyzhu/didong-player
+          GITHUB_TOKEN: ${{ github.token }}
+          SYNC_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_type == 'tag' && github.ref_name || inputs.release_tag || '' }}
+          SYNC_RELEASE: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' && inputs.release_tag != '' }}
         run: |
-          git remote add gitee "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_REPOSITORY}.git"
-          git push gitee main:main --tags
+          args=(--release-tag "$SYNC_TAG")
+          if [ "$SYNC_RELEASE" = 'true' ]; then args+=(--sync-release); fi
+          python tools/sync_gitee.py "${args[@]}"
