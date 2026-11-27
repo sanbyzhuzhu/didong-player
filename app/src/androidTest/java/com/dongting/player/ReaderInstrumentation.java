@@ -29,6 +29,14 @@ public final class ReaderInstrumentation extends Instrumentation {
     @Override public void onCreate(Bundle args) { arguments = args; start(); }
 
     @Override public void onStart() {
+        if ("wifi".equals(arguments.getString("suite"))) {
+            new WifiTransferInstrumentation(this).run();
+            return;
+        }
+        if ("webdav".equals(arguments.getString("suite"))) {
+            new WebDavInstrumentation(this).run();
+            return;
+        }
         if ("updates-live".equals(arguments.getString("suite"))) {
             new UpdateInstrumentation(this).runLive();
             return;

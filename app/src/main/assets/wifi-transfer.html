@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>地洞播放器 · Wi-Fi 传输</title>
+<style>
+:root{color-scheme:dark;font:16px/1.6 system-ui,-apple-system,"Microsoft YaHei",sans-serif;background:#0b1320;color:#f1f5f9}
+*{box-sizing:border-box}body{max-width:840px;margin:auto;padding:36px 20px}h1{font-size:30px;margin:0 0 8px}h2{font-size:20px;margin:0 0 14px}p{color:#a6b5c9;margin:8px 0 18px}.card{background:#131e30;border:1px solid #263754;border-radius:18px;padding:24px;margin:22px 0}label{display:block;margin-bottom:12px}input{display:block;width:100%;padding:16px;border:1px dashed #50708f;border-radius:12px;background:#0b1320;color:#f1f5f9}input::file-selector-button,button{font:inherit;border:0;border-radius:10px;padding:10px 18px;margin-right:8px;background:#38bdf8;color:#071320;cursor:pointer}button.secondary{background:#263754;color:#f1f5f9}button:disabled{opacity:.45;cursor:default}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}progress{width:100%;height:14px;accent-color:#38bdf8}#status{white-space:pre-wrap;overflow-wrap:anywhere;min-height:28px}ul{list-style:none;margin:0;padding:0}li{display:flex;gap:14px;justify-content:space-between;align-items:center;border-top:1px solid #263754;padding:14px 0}.name{overflow-wrap:anywhere;min-width:0}.size{display:block;font-size:13px;color:#a6b5c9}a{color:#7dd3fc;white-space:nowrap}footer{font-size:13px;color:#94a3b8}#errors{white-space:pre-wrap;color:#fda4af;overflow-wrap:anywhere}@media(max-width:520px){body{padding:24px 14px}.card{padding:18px}h1{font-size:25px}}
+</style>
+</head>
+<body>
+<h1>地洞播放器 · Wi-Fi 传输</h1>
+<p>把影音和电子书传到手机，省去数据线。</p>
+<section class="card">
+<h2>发送文件到手机</h2>
+<label for="files">选择音乐、视频或电子书，可一次选择多个文件</label>
+<input id="files" type="file" multiple>
+<p>支持播放器现有的影音格式，以及 TXT、EPUB、Markdown、HTML、DOCX、JSON 等电子书。电子书最大 64 MB，影音最大 32 GB。</p>
+<div class="actions"><button id="send">开始上传</button><button id="cancel" class="secondary" disabled>取消上传</button></div>
+<progress id="progress" value="0" max="100" aria-label="上传进度"></progress>
+<div id="status" role="status" aria-live="polite">等待选择文件</div><div id="errors"></div>
+</section>
+<section class="card">
+<h2>手机已收到的文件</h2>
+<p>传完后，在手机点击「完成并入库」即可播放或朗读。也可将下方已收文件下载到当前设备。</p>
+<button id="refresh" class="secondary">刷新列表</button><ul id="list"></ul>
+</section>
+<footer>仅在可信任的局域网中使用。请保持手机传输页打开；手机停止传输或离开页面后，当前访问地址会失效。文件通过局域网 HTTP 直传，不经过云端服务器。</footer>
+<script nonce="__NONCE__">
+const files=document.getElementById('files'),send=document.getElementById('send'),cancel=document.getElementById('cancel'),progress=document.getElementById('progress'),statusBox=document.getElementById('status'),errors=document.getElementById('errors');
+let current=null,cancelled=false;
+const formatSize=n=>n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB';
+async function refresh(){
+ const list=document.getElementById('list');
+ try{const response=await fetch('list',{cache:'no-store'});if(!response.ok)throw new Error('连接已失效，请检查手机传输页');const data=await response.json();list.replaceChildren();
+ for(const file of data){const row=document.createElement('li'),label=document.createElement('span'),size=document.createElement('span'),link=document.createElement('a');label.className='name';label.textContent=file.name;size.className='size';size.textContent=formatSize(file.size);label.append(size);link.href='file/'+file.id;link.download=file.name;link.textContent='下载';row.append(label,link);list.append(row);}
+ if(!data.length){const empty=document.createElement('li');empty.textContent='还没有收到文件';list.append(empty);}
+ }catch(error){list.replaceChildren();const row=document.createElement('li');row.textContent=error.message;list.append(row);}
+}
+function upload(file,index,total){return new Promise((resolve,reject)=>{
+ const xhr=new XMLHttpRequest();current=xhr;xhr.open('PUT','upload?name='+encodeURIComponent(file.name));xhr.setRequestHeader('Content-Type','application/octet-stream');
+ xhr.upload.onprogress=event=>{if(event.lengthComputable){progress.value=event.loaded/event.total*100;statusBox.textContent=`${index}/${total} · ${file.name}\n${formatSize(event.loaded)} / ${formatSize(event.total)}`;}};
+ xhr.onload=()=>{current=null;if(xhr.status===201)resolve();else{let message='上传失败（HTTP '+xhr.status+'）';try{message=JSON.parse(xhr.responseText).error||message;}catch{}reject(new Error(message));}};
+ xhr.onerror=()=>{current=null;reject(new Error('连接中断，请检查手机是否仍停留在传输页'));};xhr.onabort=()=>{current=null;reject(new Error('已取消，未完成的文件不会入库'));};xhr.send(file);
+});}
+send.addEventListener('click',async()=>{
+ const selected=Array.from(files.files);if(!selected.length){statusBox.textContent='请先选择文件';return;}
+ send.disabled=true;files.disabled=true;cancel.disabled=false;cancelled=false;errors.textContent='';let succeeded=0,failed=0;
+ try{for(let i=0;i<selected.length&&!cancelled;i++){progress.value=0;try{await upload(selected[i],i+1,selected.length);succeeded++;}catch(error){failed++;errors.textContent+=selected[i].name+'：'+error.message+'\n';}}}
+ finally{send.disabled=false;files.disabled=false;cancel.disabled=true;progress.value=cancelled?0:100;statusBox.textContent=(cancelled?'上传已取消。':'本次传输结束。')+'成功 '+succeeded+' 个，失败 '+failed+' 个。请在手机点击「完成并入库」。';await refresh();}
+});
+cancel.addEventListener('click',()=>{cancelled=true;if(current)current.abort();});document.getElementById('refresh').addEventListener('click',refresh);refresh();
+</script>
+</body></html>

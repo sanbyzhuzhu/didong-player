@@ -152,6 +152,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private TextView positionLabel;
     private TextView speedLabel;
     private TextView loopLabel;
+    private TextView ttsLoopLabel;
+    private TextView ttsRateLabel;
+    private TextView ttsPitchLabel;
     private TextView listSummary;
     private TextView backgroundStatus;
     private TextView audioEffectStatus;
@@ -205,6 +208,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private String mediaFilter = "all";
     private String importedText = "";
     private String importedTextKey = "";
+    private String importedTextTitle = "";
+    private boolean preferReadingStage = false;
+    private boolean ignoreVoiceSpinnerChange = false;
     private String textSearchQuery = "";
     private int currentTextChunk = 0;
     private int videoRotation = 0;
@@ -249,6 +255,22 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                                         | Intent.FLAG_GRANT_WRITE_URI_PERMISSION));
                         scanFolder(uri);
                     }
+                }
+            });
+
+    private final ActivityResultLauncher<Intent> wifiTransferPicker = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    if (player == null) getIntent().putExtras(result.getData());
+                    else importNetworkFiles(result.getData(), true);
+                }
+            });
+
+    private final ActivityResultLauncher<Intent> webDavPicker = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    if (player == null) getIntent().putExtras(result.getData());
+                    else importWebDavFiles(result.getData());
                 }
             });
 
@@ -778,7 +800,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
         quickMetaLabel = label("1.00x · 顺序播放", 12, UiKit.ACCENT);
         quickMetaLabel.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        quickMetaLabel.setOnClickListener(v -> showSpeedDialog());
+        quickMetaLabel.setOnClickListener(v -> onQuickMetaClicked());
         metaRow.addView(quickMetaLabel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         controlCard.addView(metaRow, fullWrap());
@@ -844,8 +866,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         dualRow.setOrientation(LinearLayout.HORIZONTAL);
         dualRow.setGravity(Gravity.CENTER_VERTICAL);
 
-        ImageView prevBtn = UiKit.iconButton(this, R.drawable.ic_prev, UiKit.TEXT, v -> playRelative(-1));
-        prevBtn.setContentDescription("上一首");
+        ImageView prevBtn = UiKit.iconButton(this, R.drawable.ic_prev, UiKit.TEXT, v -> onPrevButtonClicked());
+        prevBtn.setContentDescription("上一首/上一段");
         LinearLayout.LayoutParams sideBtnLp = new LinearLayout.LayoutParams(dp(44), dp(44));
         sideBtnLp.setMargins(0, 0, dp(8), 0);
         dualRow.addView(prevBtn, sideBtnLp);
@@ -864,8 +886,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         readLp.setMargins(0, 0, dp(8), 0);
         dualRow.addView(textReadButton, readLp);
 
-        ImageView nextBtn = UiKit.iconButton(this, R.drawable.ic_next, UiKit.TEXT, v -> playRelative(1));
-        nextBtn.setContentDescription("下一首");
+        ImageView nextBtn = UiKit.iconButton(this, R.drawable.ic_next, UiKit.TEXT, v -> onNextButtonClicked());
+        nextBtn.setContentDescription("下一首/下一段");
         dualRow.addView(nextBtn, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
         LinearLayout.LayoutParams dualLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -911,6 +933,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         mediaSheetContent.setOrientation(LinearLayout.VERTICAL);
 
         mediaSheetContent.addView(UiKit.sectionTitle(this, "媒体库"));
+        mediaSheetContent.addView(btn("WebDAV 云端文件", v -> webDavPicker.launch(
+                new Intent(this, WebDavActivity.class).putExtra("choose", true))));
+        mediaSheetContent.addView(btn("Wi-Fi 文件传输", v -> wifiTransferPicker.launch(
+                new Intent(this, WifiTransferActivity.class).putExtra("choose", true))));
         mediaSheetContent.addView(row(
                 btn("扫描文件夹", v -> pickFolder()),
                 btn("打开文件", v -> pickMediaFile()),
@@ -1134,39 +1160,79 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 btn("清位置", v -> clearCurrentPosition())));
 
         toolsSheetContent.addView(UiKit.sectionTitle(this, "朗读与 TTS"));
+        ttsLoopLabel = label("", 13, UiKit.SUBTLE);
+        toolsSheetContent.addView(ttsLoopLabel);
         toolsSheetContent.addView(row(
+                btn("朗读循环", v -> cycleTtsLoopMode()),
                 btn("停止朗读", v -> stopSpeaking()),
                 btn("重读本段", v -> repeatCurrentTextChunk()),
-                btn("朗读进度", v -> showTextProgressStatus()),
-                btn("默认TTS", v -> useSystemDefaultTts())));
+                btn("朗读进度", v -> showTextProgressStatus())));
         toolsSheetContent.addView(row(
+                btn("默认TTS", v -> useSystemDefaultTts()),
                 btn("系统TTS", v -> openTtsSettings()),
                 btn("扫描历史", v -> showScanHistoryDialog()),
-                btn("设备自检", v -> showDeviceCheckDialog()),
+                btn("设备自检", v -> showDeviceCheckDialog())));
+        toolsSheetContent.addView(row(
                 btn("数据备份", v -> showBackupDialog())));
         voiceSpinner = new Spinner(this);
         UiKit.styleSpinner(this, voiceSpinner);
         toolsSheetContent.addView(voiceSpinner, fullWrap());
 
+        ttsRateLabel = label("", 13, UiKit.SUBTLE);
         ttsRateBar = UiKit.seekBar(this);
         ttsRateBar.setMax(150);
         ttsRateBar.setProgress(prefs.getInt("ttsRate", 75));
-        ttsRateBar.setOnSeekBarChangeListener(simpleSeek((bar, progress, fromUser) -> {
-            prefs.edit().putInt("ttsRate", progress).apply();
-            applyTtsSettings();
-        }));
-        toolsSheetContent.addView(label("朗读语速", 13, UiKit.SUBTLE));
+        ttsRateBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    prefs.edit().putInt("ttsRate", progress).apply();
+                    updateTtsUiLabels();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                prefs.edit().putInt("ttsRate", seekBar.getProgress()).apply();
+                applyTtsSettings();
+                updateTtsUiLabels();
+                status(String.format(Locale.CHINA, "朗读语速：%.2fx", TextReaderService.currentSpeechRate(prefs)));
+            }
+        });
+        toolsSheetContent.addView(ttsRateLabel);
         toolsSheetContent.addView(ttsRateBar);
 
+        ttsPitchLabel = label("", 13, UiKit.SUBTLE);
         ttsPitchBar = UiKit.seekBar(this);
         ttsPitchBar.setMax(100);
         ttsPitchBar.setProgress(prefs.getInt("ttsPitch", 50));
-        ttsPitchBar.setOnSeekBarChangeListener(simpleSeek((bar, progress, fromUser) -> {
-            prefs.edit().putInt("ttsPitch", progress).apply();
-            applyTtsSettings();
-        }));
-        toolsSheetContent.addView(label("朗读音调", 13, UiKit.SUBTLE));
+        ttsPitchBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    prefs.edit().putInt("ttsPitch", progress).apply();
+                    updateTtsUiLabels();
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                prefs.edit().putInt("ttsPitch", seekBar.getProgress()).apply();
+                applyTtsSettings();
+                updateTtsUiLabels();
+            }
+        });
+        toolsSheetContent.addView(ttsPitchLabel);
         toolsSheetContent.addView(ttsPitchBar);
+        updateTtsUiLabels();
 
         toolsSheetContent.addView(UiKit.sectionTitle(this, "朗读背景音乐"));
         backgroundStatus = label("", 12, UiKit.SUBTLE);
@@ -1258,6 +1324,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void showToolsSheet() {
         updateLoopLabel();
+        updateTtsUiLabels();
         updateBackgroundStatus();
         UiKit.showBottomSheet(this, "播放与朗读工具箱", toolsSheetContent, true);
     }
@@ -1409,6 +1476,16 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private void processExternalIntent(Intent intent) {
         if (intent == null || player == null)
             return;
+        if (intent.hasExtra(WifiTransferActivity.EXTRA_URIS)) {
+            importNetworkFiles(intent, true);
+            intent.removeExtra(WifiTransferActivity.EXTRA_URIS);
+            return;
+        }
+        if (intent.hasExtra(WebDavActivity.EXTRA_URIS)) {
+            importWebDavFiles(intent);
+            intent.removeExtra(WebDavActivity.EXTRA_URIS);
+            return;
+        }
         String action = intent.getAction();
         Uri uri = intent.getData();
         if (Intent.ACTION_VIEW.equals(action) && uri != null) {
@@ -1479,6 +1556,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private boolean isUriReadable(Uri uri) {
+        // Network availability is reported asynchronously by ExoPlayer; never probe on the UI thread.
+        if ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme())) return true;
         try (InputStream input = getContentResolver().openInputStream(uri)) {
             return input != null;
         } catch (Exception ignored) {
@@ -1782,6 +1861,8 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             return;
         }
         suppressPositionSave = false;
+        preferReadingStage = false;
+        pauseReadingIfActive();
         prepareLayoutForEntry(entry);
         nowPlaying.setText(entry.title + "\n" + entry.folderName);
         long last = Math.max(0, getStoredLong("pos:" + entry.uri, 0));
@@ -1845,7 +1926,9 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             player.pause();
             saveCurrentPosition();
         } else {
-            // 用户显式点播放，清掉"摘耳机/来电"的暂停标记
+            // 用户显式点播放，清掉"摘耳机/来电"的暂停标记；同时暂停后台朗读避免混音
+            preferReadingStage = false;
+            pauseReadingIfActive();
             prefs.edit().remove("lastPauseReason").apply();
             consecutivePlayErrors = 0;
             player.play();
@@ -1853,7 +1936,65 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         updatePlayPauseButton();
         updateVideoKeepScreenOn();
         updateVideoControlVisibility();
+        updateQuickMetaLabel();
         updateVisualStage();
+    }
+
+    private void onPrevButtonClicked() {
+        if (isReadingControlActive()) {
+            moveReadingChunk(-1);
+            return;
+        }
+        playRelative(-1);
+    }
+
+    private void onNextButtonClicked() {
+        if (isReadingControlActive()) {
+            moveReadingChunk(1);
+            return;
+        }
+        playRelative(1);
+    }
+
+    private void moveReadingChunk(int delta) {
+        if (importedText.trim().isEmpty()) {
+            status("请先导入电子书");
+            return;
+        }
+        if (textChunks.isEmpty())
+            textChunks.addAll(splitTextForTts(importedText));
+        if (textChunks.isEmpty())
+            return;
+        int next = Math.max(0, Math.min(textChunks.size() - 1, currentTextChunk + delta));
+        currentTextChunk = next;
+        String key = importedTextKey.isEmpty() ? "inline:" + importedText.hashCode() : importedTextKey;
+        prefs.edit()
+                .putInt("ttsChunk:" + key, next)
+                .putInt("ttsSentenceChunk:" + key, next)
+                .putInt("ttsSentenceStart:" + key, 0)
+                .putInt("ttsSentenceEnd:" + key, 0)
+                .putInt("ttsRangeStart:" + key, 0)
+                .putInt("ttsRangeEnd:" + key, 0)
+                .putString("ttsVisualMode:" + key, "sentence")
+                .apply();
+        if (TextReaderService.isReading(key)) {
+            startService(new Intent(this, TextReaderService.class)
+                    .setAction(TextReaderService.ACTION_SEEK_CHUNK)
+                    .putExtra(TextReaderService.EXTRA_CHUNK_INDEX, next)
+                    .putExtra(TextReaderService.EXTRA_SENTENCE_OFFSET, 0));
+        }
+        updatePositionUi();
+        updateVisualStage();
+        status("朗读已切到第 " + (next + 1) + " / " + textChunks.size() + " 段");
+    }
+
+    private void pauseReadingIfActive() {
+        if (TextReaderService.isRunning() && !TextReaderService.isPaused()) {
+            try {
+                startService(new Intent(this, TextReaderService.class).setAction(TextReaderService.ACTION_PAUSE));
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     private void playRelative(int delta) {
@@ -1868,6 +2009,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void seekBy(long deltaMs) {
+        if (isReadingControlActive()) {
+            moveReadingChunk(deltaMs < 0 ? -1 : 1);
+            return;
+        }
         if (player == null)
             return;
         if (currentIndex < 0)
@@ -1901,11 +2046,61 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
     private void showNowPlayingPage() {
         MediaEntry entry = currentEntry();
-        if (entry == null) {
-            status("当前没有正在播放的文件");
+        if (entry == null && importedText.trim().isEmpty() && !TextReaderService.isRunning()) {
+            status("当前没有正在播放的文件或电子书");
             return;
         }
         startActivity(new Intent(this, NowPlayingActivity.class));
+    }
+
+    private void onQuickMetaClicked() {
+        if (isReadingControlActive()) {
+            showReadingQuickDialog();
+        } else {
+            showSpeedDialog();
+        }
+    }
+
+    private void showReadingQuickDialog() {
+        float curRate = TextReaderService.currentSpeechRate(prefs);
+        int curLoop = TextReaderService.getLoopMode(prefs);
+        String[] options = {
+                "语速 0.75x",
+                "语速 1.00x",
+                "语速 1.25x",
+                "语速 1.50x",
+                "语速 1.75x",
+                "语速 2.00x",
+                "循环模式：顺序连读（读完切下本）",
+                "循环模式：单本循环（本篇循环）",
+                "循环模式：书架循环（全部循环）",
+                "循环模式：读完停止（只读本篇）"
+        };
+        float[] rates = { 0.75f, 1.00f, 1.25f, 1.50f, 1.75f, 2.00f };
+        int checked = -1;
+        for (int i = 0; i < rates.length; i++) {
+            if (Math.abs(rates[i] - curRate) < 0.04f) {
+                checked = i;
+                break;
+            }
+        }
+        UiKit.showChoiceSheet(this,
+                String.format(Locale.CHINA, "朗读速度与循环（当前 %.2fx · %s）", curRate, TextReaderService.loopModeName(curLoop)),
+                options, checked, which -> {
+                    if (which < rates.length) {
+                        int progress = TextReaderService.progressFromRate(rates[which]);
+                        prefs.edit().putInt("ttsRate", progress).apply();
+                        if (ttsRateBar != null) ttsRateBar.setProgress(progress);
+                        applyTtsSettings();
+                        updateTtsUiLabels();
+                        status(String.format(Locale.CHINA, "朗读语速：%.2fx", TextReaderService.currentSpeechRate(prefs)));
+                    } else {
+                        int mode = which - rates.length;
+                        prefs.edit().putInt(TextReaderService.PREF_LOOP_MODE, mode).apply();
+                        updateTtsUiLabels();
+                        status("朗读模式：" + TextReaderService.loopModeName(mode));
+                    }
+                });
     }
 
     private void showSpeedDialog() {
@@ -2635,7 +2830,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     };
 
     private void showSleepTimerDialog() {
-        String[] options = { "关闭定时", "15 分钟", "30 分钟", "60 分钟", "播完当前停止", "播完列表停止" };
+        String[] options = { "关闭定时", "15 分钟", "30 分钟", "60 分钟", "播完/读完当前停止", "播完列表停止" };
         new AlertDialog.Builder(this)
                 .setTitle("睡眠定时")
                 .setItems(options, (dialog, which) -> {
@@ -2646,7 +2841,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                         status("已关闭睡眠定时");
                     } else if (which == 4) {
                         prefs.edit().putBoolean("stopAfterCurrent", true).putBoolean("stopAfterList", false).apply();
-                        status("当前音频播放结束后停止");
+                        status("当前音频播完或当前书读完后停止");
                     } else if (which == 5) {
                         prefs.edit().putBoolean("stopAfterCurrent", false).putBoolean("stopAfterList", true).apply();
                         status("当前列表播放结束后停止");
@@ -2656,7 +2851,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                         prefs.edit().putLong("sleepAt", sleepAt).putBoolean("stopAfterCurrent", false)
                                 .putBoolean("stopAfterList", false).apply();
                         handler.postDelayed(sleepTimer, minutes * 60_000L);
-                        status("将在 " + minutes + " 分钟后停止播放");
+                        status("将在 " + minutes + " 分钟后停止播放/朗读");
                     }
                 })
                 .show();
@@ -2665,14 +2860,15 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private final Runnable sleepTimer = new Runnable() {
         @Override
         public void run() {
-            if (player == null)
-                return;
-            player.pause();
-            saveCurrentPosition();
+            if (player != null && player.isPlaying()) {
+                player.pause();
+                saveCurrentPosition();
+            }
+            pauseReadingIfActive();
             prefs.edit().remove("sleepAt").putBoolean("stopAfterCurrent", false).putBoolean("stopAfterList", false)
                     .apply();
             updatePlayPauseButton();
-            status("睡眠定时已停止播放");
+            status("睡眠定时已停止播放与朗读");
         }
     };
 
@@ -2710,9 +2906,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private final Runnable positionTicker = new Runnable() {
         @Override
         public void run() {
+            syncActiveReadingBookIfNeeded();
             updatePositionUi();
             updateVisualStage();
             updatePlayPauseButton();
+            updateQuickMetaLabel();
             // 背景状态 2 秒刷一次即可：原先每 500ms 读 prefs + 解析 JSON，是后台耗电大户
             if (++tickCount % 4 == 0)
                 updateBackgroundStatus();
@@ -2721,6 +2919,25 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             handler.postDelayed(this, 500);
         }
     };
+
+    /** 后台朗读服务自动切到下一本书时，主界面立即同步书目与分段，确保字幕无缝跟上。 */
+    private void syncActiveReadingBookIfNeeded() {
+        String activeUri = TextReaderService.activeTextUri();
+        if (activeUri.isEmpty() || activeUri.startsWith("inline:"))
+            return;
+        if (activeUri.equals(importedTextKey))
+            return;
+        String loaded = readText(Uri.parse(activeUri));
+        if (loaded.trim().isEmpty())
+            return;
+        importedText = loaded;
+        importedTextKey = activeUri;
+        importedTextTitle = displayName(Uri.parse(activeUri));
+        textChunks.clear();
+        textChunks.addAll(splitTextForTts(loaded));
+        currentTextChunk = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + activeUri, 0), Math.max(0, textChunks.size() - 1)));
+        preferReadingStage = true;
+    }
 
     /** 后台听书时每 5 秒落盘一次进度，服务即使被系统回收也不会丢失位置。 */
     private void maybeAutoSavePosition() {
@@ -2760,21 +2977,34 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if (visualView == null)
             return;
         MediaEntry entry = currentEntry();
-        boolean reading = TextReaderService.isRunning();
-        boolean playing = (reading && !TextReaderService.isPaused()) || (player != null && player.isPlaying());
-        String title = entry == null ? "地洞播放器" : entry.title;
-        String subtitle = entry == null ? "耳朵在树洞里听见了声音" : entry.folderName;
-        String body = visualBodyText(entry, reading);
+        boolean mediaPlaying = player != null && player.isPlaying() && entry != null;
+        boolean readingService = TextReaderService.isRunning();
+        boolean showReadingStage = !mediaPlaying && !importedText.trim().isEmpty()
+                && (readingService || preferReadingStage || entry == null);
+        boolean playing = showReadingStage
+                ? (readingService && !TextReaderService.isPaused())
+                : (player != null && player.isPlaying());
+        String title;
+        String subtitle;
+        if (showReadingStage) {
+            title = (importedTextTitle == null || importedTextTitle.trim().isEmpty()) ? "电子书朗读" : importedTextTitle;
+            subtitle = readingService
+                    ? (TextReaderService.isPaused() ? "电子书朗读 · 已暂停" : "电子书朗读 · 正在朗读")
+                    : "电子书朗读 · 待开始（点朗读开始）";
+        } else {
+            title = entry == null ? "地洞播放器" : entry.title;
+            subtitle = entry == null ? "耳朵在树洞里听见了声音" : entry.folderName;
+        }
+        String body = visualBodyText(entry, showReadingStage);
         int boost = boostBar == null ? prefs.getInt("boost", 0) : boostBar.getProgress();
         int bass = bassBar == null ? prefs.getInt("bass", 0) : bassBar.getProgress();
         int stereo = stereoBar == null ? prefs.getInt("stereo", 0) : stereoBar.getProgress();
         float effect = Math.min(1.8f, 0.45f + boost / 2600f + bass / 1600f + stereo / 1800f);
-        visualView.setState(title, subtitle, body, playing, reading, effect);
+        visualView.setState(title, subtitle, body, playing, showReadingStage, effect);
     }
 
-    private String visualBodyText(@Nullable MediaEntry entry, boolean reading) {
-        boolean mediaPlaying = player != null && player.isPlaying() && entry != null;
-        if (reading && !mediaPlaying) {
+    private String visualBodyText(@Nullable MediaEntry entry, boolean showReadingStage) {
+        if (showReadingStage) {
             String chunk = currentReadingChunk();
             if (!chunk.isEmpty())
                 return chunk;
@@ -2817,9 +3047,18 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
 
 
     private boolean isHomeReadingActive() {
+        boolean mediaPlaying = player != null && player.isPlaying();
+        return !mediaPlaying
+                && !textChunks.isEmpty()
+                && (TextReaderService.isRunning() || preferReadingStage || currentEntry() == null);
+    }
+
+    private boolean isReadingControlActive() {
+        boolean mediaPlaying = player != null && player.isPlaying();
+        if (mediaPlaying)
+            return false;
         return TextReaderService.isRunning()
-                && (player == null || !player.isPlaying())
-                && !textChunks.isEmpty();
+                || (!importedText.trim().isEmpty() && (preferReadingStage || currentEntry() == null));
     }
 
     private void updatePositionUi() {
@@ -2876,8 +3115,36 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     private void updateQuickMetaLabel() {
         if (quickMetaLabel == null)
             return;
+        if (isReadingControlActive()) {
+            float ttsRate = TextReaderService.currentSpeechRate(prefs);
+            String ttsLoop = TextReaderService.loopModeName(TextReaderService.getLoopMode(prefs));
+            quickMetaLabel.setText(String.format(Locale.CHINA, "朗读 %.2fx · %s", ttsRate, ttsLoop));
+            return;
+        }
         float sp = player == null ? prefs.getFloat("lastSpeed", 1f) : player.getPlaybackParameters().speed;
         quickMetaLabel.setText(String.format(Locale.CHINA, "%.2fx · %s", sp, playbackModeName()));
+    }
+
+    private void updateTtsUiLabels() {
+        if (prefs == null)
+            return;
+        int rateProgress = prefs.getInt("ttsRate", 75);
+        int pitchProgress = prefs.getInt("ttsPitch", 50);
+        float rate = TextReaderService.rateFromProgress(rateProgress);
+        float pitch = 0.5f + (pitchProgress / 100f);
+        if (ttsRateLabel != null)
+            ttsRateLabel.setText(String.format(Locale.CHINA, "朗读语速：%.2fx", rate));
+        if (ttsPitchLabel != null)
+            ttsPitchLabel.setText(String.format(Locale.CHINA, "朗读音调：%.2fx", pitch));
+        if (ttsLoopLabel != null)
+            ttsLoopLabel.setText("朗读模式：" + TextReaderService.loopModeName(TextReaderService.getLoopMode(prefs)));
+        updateQuickMetaLabel();
+    }
+
+    private void cycleTtsLoopMode() {
+        int next = TextReaderService.cycleLoopMode(prefs);
+        updateTtsUiLabels();
+        status("朗读模式：" + TextReaderService.loopModeName(next));
     }
 
     private void setSpeed(float speed, boolean persist) {
@@ -3068,6 +3335,15 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void seekToStart() {
+        if (isReadingControlActive()) {
+            resetTextProgress();
+            if (TextReaderService.isRunning()) {
+                startService(new Intent(this, TextReaderService.class).setAction(TextReaderService.ACTION_RESTART));
+            }
+            updatePositionUi();
+            updateVisualStage();
+            return;
+        }
         if (player == null)
             return;
         player.seekTo(0);
@@ -3897,6 +4173,10 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         items.add(0, new NamedUri(name == null || name.trim().isEmpty() ? uri : name, uri));
         while (items.size() > limit)
             items.remove(items.size() - 1);
+        saveNamedUriList(key, items);
+    }
+
+    private void saveNamedUriList(String key, List<NamedUri> items) {
         JSONArray array = new JSONArray();
         for (NamedUri item : items) {
             JSONObject obj = new JSONObject();
@@ -3998,15 +4278,21 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
                 break;
             }
         }
+        ignoreVoiceSpinnerChange = true;
         voiceSpinner.setSelection(selected);
         voiceSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (ignoreVoiceSpinnerChange) {
+                    ignoreVoiceSpinnerChange = false;
+                    return;
+                }
                 if (position <= 0) {
                     prefs.edit().remove("ttsVoice").apply();
                 } else if (position - 1 < voices.size()) {
                     prefs.edit().putString("ttsVoice", voices.get(position - 1).getName()).apply();
                 }
+                applyTtsSettings();
             }
 
             @Override
@@ -4074,6 +4360,59 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         textPicker.launch(intent);
+    }
+
+    private void importWebDavFiles(Intent data) {
+        importNetworkFiles(data, false);
+    }
+
+    private void importNetworkFiles(Intent data, boolean wifi) {
+        String source = wifi ? "Wi-Fi 传输" : "WebDAV";
+        ArrayList<String> uris = data.getStringArrayListExtra(wifi ? WifiTransferActivity.EXTRA_URIS : WebDavActivity.EXTRA_URIS);
+        if (uris == null || uris.isEmpty()) return;
+        ensureSmartPlaylists();
+        List<MediaEntry> opened = playlists.computeIfAbsent(PLAYLIST_OPENED, key -> new ArrayList<>());
+        int mediaCount = 0, bookCount = 0;
+        Map<String, NamedUri> importedBooks = new LinkedHashMap<>();
+        Uri firstBook = null;
+        String firstMedia = null;
+        for (String raw : uris) {
+            Uri uri = Uri.parse(raw);
+            boolean remote = "http".equals(uri.getScheme()) || "https".equals(uri.getScheme());
+            if (wifi && remote) continue;
+            if (!remote) {
+                if (!"file".equals(uri.getScheme()) || uri.getPath() == null) continue;
+                try {
+                    if (!new java.io.File(uri.getPath()).getCanonicalPath().startsWith(
+                            (wifi ? WifiTransferActivity.root(this) : WebDavClient.downloadRoot(this)).getCanonicalPath() + "/")) continue;
+                } catch (java.io.IOException error) { continue; }
+            }
+            String title = displayName(uri);
+            if (!remote && BookTextParser.supportedName(title)) {
+                importedBooks.put(raw, new NamedUri(title, raw));
+                if (firstBook == null) firstBook = uri;
+                bookCount++;
+            } else if (MediaUtils.isMedia(title)) {
+                removeUri(opened, raw);
+                opened.add(new MediaEntry(raw, title, source, "opened", isVideo(title) ? "video" : "audio"));
+                if (firstMedia == null) firstMedia = raw;
+                mediaCount++;
+            }
+        }
+        if (!importedBooks.isEmpty()) {
+            for (NamedUri book : loadNamedUriList("textBooks")) importedBooks.putIfAbsent(book.uri, book);
+            List<NamedUri> shelf = new ArrayList<>(importedBooks.values());
+            if (shelf.size() > 5000) shelf = new ArrayList<>(shelf.subList(0, 5000));
+            saveNamedUriList("textBooks", shelf);
+        }
+        if (mediaCount > 0) {
+            savePlaylists(); selectedPlaylist = PLAYLIST_OPENED;
+            refreshPlaylistSpinner(); setQueue(opened, false);
+            for (int i = 0; i < queue.size(); i++) if (queue.get(i).uri.equals(firstMedia)) { playAt(i); break; }
+        } else if (firstBook != null) {
+            openTextUri(firstBook, source + "已导入书籍 " + bookCount + " 本，当前打开：");
+        }
+        status(source + "已导入：影音 " + mediaCount + " 个，电子书 " + bookCount + " 本");
     }
 
     private void pickTextFolder() {
@@ -4163,18 +4502,35 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         BookLoader.invalidate(uri);
         String loaded = readText(uri);
         if (loaded.trim().isEmpty()) return;
+        boolean wasActivelyReading = TextReaderService.isRunning() && !TextReaderService.isPaused();
         importedText = loaded;
         importedTextKey = uri.toString();
-        currentTextChunk = prefs.getInt("ttsChunk:" + importedTextKey, 0);
+        importedTextTitle = displayName(uri);
         textChunks.clear();
+        textChunks.addAll(splitTextForTts(loaded));
+        currentTextChunk = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + importedTextKey, 0),
+                Math.max(0, textChunks.size() - 1)));
+        preferReadingStage = true;
         prefs.edit().putString("lastTextUri", importedTextKey).apply();
-        status(prefix + displayName(uri));
+        if (wasActivelyReading) {
+            if (player != null && player.isPlaying()) {
+                player.pause();
+                saveCurrentPosition();
+            }
+            startTextReaderService(TextReaderService.ACTION_START, importedTextKey);
+        } else if (TextReaderService.isRunning() && !TextReaderService.isReading(importedTextKey)) {
+            startTextReaderService(TextReaderService.ACTION_STOP, null);
+        }
+        status(prefix + importedTextTitle);
         try {
             ReadableBook book = BookLoader.load(this, uri);
             if (!book.warnings.isEmpty()) new AlertDialog.Builder(this)
                     .setTitle("电子书导入提示").setMessage(String.join("\n", book.warnings))
                     .setPositiveButton("知道了", null).show();
         } catch (java.io.IOException ignored) { }
+        updatePositionUi();
+        updatePlayPauseButton();
+        updateQuickMetaLabel();
         updateVisualStage();
     }
 
@@ -4183,16 +4539,28 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             status("请先导入电子书");
             return;
         }
+        preferReadingStage = true;
         String key = importedTextKey.isEmpty() ? "inline:" + importedText.hashCode() : importedTextKey;
         if (TextReaderService.isReading(key)) {
             boolean wasPaused = TextReaderService.isPaused();
+            if (wasPaused && player != null && player.isPlaying()) {
+                player.pause();
+                saveCurrentPosition();
+            }
             startTextReaderService(TextReaderService.ACTION_TOGGLE, null);
             status(wasPaused ? "继续逐句朗读" : "已暂停朗读");
         } else {
+            if (player != null && player.isPlaying()) {
+                player.pause();
+                saveCurrentPosition();
+            }
             startTextReaderService(TextReaderService.ACTION_START,
                     importedTextKey.isEmpty() ? null : importedTextKey);
             status("已开始逐句朗读，当前句将自动高亮跟随");
         }
+        updatePlayPauseButton();
+        updateQuickMetaLabel();
+        updateVisualStage();
     }
 
     private void startTextReaderService(String action, @Nullable String textUri) {
@@ -4294,20 +4662,57 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             pickText();
             return;
         }
+        String activeUri = TextReaderService.activeTextUri();
         String[] labels = new String[books.size()];
         for (int i = 0; i < books.size(); i++) {
             NamedUri book = books.get(i);
             int chunk = prefs.getInt("ttsChunk:" + book.uri, 0);
-            labels[i] = book.name + " · 第 " + (chunk + 1) + " 段";
+            String prefix = "";
+            if (!activeUri.isEmpty() && activeUri.equals(book.uri)) {
+                prefix = TextReaderService.isPaused() ? "[已暂停] " : "▶ [朗读中] ";
+            } else if (book.uri.equals(importedTextKey)) {
+                prefix = "[当前] ";
+            }
+            labels[i] = prefix + book.name + " · 第 " + (chunk + 1) + " 段";
         }
         new AlertDialog.Builder(this)
-                .setTitle("电子书架")
+                .setTitle("电子书架（共 " + books.size() + " 本）")
                 .setItems(labels, (dialog, which) -> openTextBook(books.get(which)))
+                .setNeutralButton("移除单本", (dialog, which) -> showRemoveTextBookDialog(books))
                 .setNegativeButton("清空书架", (dialog, which) -> {
                     prefs.edit().remove("textBooks").apply();
                     dbRemove("textBooks");
                     status("电子书架已清空");
                 })
+                .show();
+    }
+
+    private void showRemoveTextBookDialog(List<NamedUri> books) {
+        if (books.isEmpty())
+            return;
+        String[] labels = new String[books.size()];
+        for (int i = 0; i < books.size(); i++)
+            labels[i] = books.get(i).name;
+        new AlertDialog.Builder(this)
+                .setTitle("从书架移除哪本书？（不删源文件）")
+                .setItems(labels, (dialog, which) -> {
+                    NamedUri removed = books.remove(which);
+                    JSONArray array = new JSONArray();
+                    for (NamedUri item : books) {
+                        JSONObject obj = new JSONObject();
+                        try {
+                            obj.put("name", item.name);
+                            obj.put("uri", item.uri);
+                            array.put(obj);
+                        } catch (JSONException ignored) {
+                        }
+                    }
+                    String payload = array.toString();
+                    prefs.edit().putString("textBooks", payload).apply();
+                    dbPut("textBooks", payload);
+                    status("已从书架移除：" + removed.name);
+                })
+                .setNegativeButton("取消", null)
                 .show();
     }
 
@@ -4317,7 +4722,7 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void rememberTextBook(Uri uri, String name) {
-        rememberNamedUri("textBooks", name, uri.toString(), 50);
+        rememberNamedUri("textBooks", name, uri.toString(), 5000);
     }
 
     private void showTextChaptersDialog() {
@@ -4580,12 +4985,19 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
     }
 
     private void applyTtsSettings() {
-        if (tts == null)
-            return;
-        float rate = 0.5f + (prefs.getInt("ttsRate", 75) / 100f);
-        float pitch = 0.5f + (prefs.getInt("ttsPitch", 50) / 100f);
-        tts.setSpeechRate(rate);
-        tts.setPitch(pitch);
+        if (tts != null) {
+            float rate = TextReaderService.currentSpeechRate(prefs);
+            float pitch = 0.5f + (prefs.getInt("ttsPitch", 50) / 100f);
+            tts.setSpeechRate(rate);
+            tts.setPitch(pitch);
+        }
+        if (TextReaderService.isRunning()) {
+            try {
+                startService(new Intent(this, TextReaderService.class)
+                        .setAction(TextReaderService.ACTION_APPLY_SETTINGS));
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     private void stopSpeaking() {
@@ -5282,8 +5694,11 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         if (!restored.isEmpty()) {
             importedText = restored;
             importedTextKey = raw;
-            currentTextChunk = prefs.getInt("ttsChunk:" + importedTextKey, 0);
+            importedTextTitle = displayName(uri);
             textChunks.clear();
+            textChunks.addAll(splitTextForTts(restored));
+            currentTextChunk = Math.max(0, Math.min(prefs.getInt("ttsChunk:" + importedTextKey, 0),
+                    Math.max(0, textChunks.size() - 1)));
             status("已恢复上次导入的文本");
         }
     }
@@ -5531,9 +5946,12 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
             ttsPitchBar.setProgress(50);
         if (bgVolumeBar != null)
             bgVolumeBar.setProgress(25);
-        if (voiceSpinner != null)
+        if (voiceSpinner != null) {
+            ignoreVoiceSpinnerChange = true;
             voiceSpinner.setSelection(0);
+        }
         applyTtsSettings();
+        updateTtsUiLabels();
         bgPlayer.setVolume(0.25f);
         notifyTextReaderBackground(TextReaderService.ACTION_BACKGROUND_UPDATE);
         status("朗读设置已恢复默认");
@@ -5688,6 +6106,17 @@ public class MainActivity extends AppCompatActivity implements TextToSpeech.OnIn
         super.onResume();
         if (startupComplete && !UiKit.init(this).equals(appliedTheme)) {
             recreate();
+            return;
+        }
+        if (startupComplete && prefs != null) {
+            syncActiveReadingBookIfNeeded();
+            if (ttsRateBar != null)
+                ttsRateBar.setProgress(prefs.getInt("ttsRate", 75));
+            if (ttsPitchBar != null)
+                ttsPitchBar.setProgress(prefs.getInt("ttsPitch", 50));
+            updateTtsUiLabels();
+            updatePositionUi();
+            updateVisualStage();
         }
     }
 

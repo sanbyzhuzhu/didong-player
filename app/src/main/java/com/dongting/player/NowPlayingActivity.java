@@ -180,7 +180,21 @@ public class NowPlayingActivity extends AppCompatActivity {
         root.addView(seekBar);
         playButton = UiKit.roundPrimaryButton(this, R.drawable.ic_play, v -> {
             if (isReadingMode()) {
-                sendTextReaderAction(TextReaderService.ACTION_TOGGLE);
+                if (TextReaderService.isRunning()) {
+                    sendTextReaderAction(TextReaderService.ACTION_TOGGLE);
+                } else {
+                    String uri = currentReadingUri();
+                    if (!uri.isEmpty()) {
+                        Intent start = new Intent(this, TextReaderService.class)
+                                .setAction(TextReaderService.ACTION_START)
+                                .putExtra(TextReaderService.EXTRA_TEXT_URI, uri);
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            startForegroundService(start);
+                        } else {
+                            startService(start);
+                        }
+                    }
+                }
                 updateUi();
                 return;
             }
@@ -189,7 +203,10 @@ public class NowPlayingActivity extends AppCompatActivity {
                 player.pause();
                 savePosition();
             } else {
-                // 用户显式点播放才继续，清掉"摘耳机/来电"的暂停标记
+                // 用户显式点播放才继续，清掉"摘耳机/来电"的暂停标记；同时暂停后台朗读避免混音
+                if (TextReaderService.isRunning() && !TextReaderService.isPaused()) {
+                    sendTextReaderAction(TextReaderService.ACTION_PAUSE);
+                }
                 prefs.edit().remove("lastPauseReason").apply();
                 player.play();
             }
@@ -249,7 +266,10 @@ public class NowPlayingActivity extends AppCompatActivity {
 
         readingChipRow2 = row(
                 chip("上一段", v -> seekReadingByDelta(-1)),
-                chip("下一段", v -> seekReadingByDelta(1))
+                chip("下一段", v -> seekReadingByDelta(1)),
+                chip("减速", v -> changeSpeed(-0.25f)),
+                chip("加速", v -> changeSpeed(0.25f)),
+                chip("循环", v -> cycleRepeatMode())
         );
         root.addView(readingChipRow2);
 
@@ -295,7 +315,20 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void changeSpeed(float delta) {
-        if (isReadingMode()) return;
+        if (isReadingMode()) {
+            float cur = TextReaderService.currentSpeechRate(prefs);
+            float next = Math.max(0.5f, Math.min(2.0f, cur + delta));
+            int progress = TextReaderService.progressFromRate(next);
+            prefs.edit().putInt("ttsRate", progress).apply();
+            if (TextReaderService.isRunning()) {
+                sendTextReaderAction(TextReaderService.ACTION_APPLY_SETTINGS);
+            }
+            android.widget.Toast.makeText(this,
+                    String.format(Locale.CHINA, "朗读语速：%.2fx", TextReaderService.rateFromProgress(progress)),
+                    android.widget.Toast.LENGTH_SHORT).show();
+            updateUi();
+            return;
+        }
         if (player == null) return;
         float next = Math.max(0.25f, Math.min(8f, player.getPlaybackParameters().speed + delta));
         player.setPlaybackParameters(new PlaybackParameters(next, 1f));
@@ -304,7 +337,14 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void cycleRepeatMode() {
-        if (isReadingMode()) return;
+        if (isReadingMode()) {
+            int next = TextReaderService.cycleLoopMode(prefs);
+            android.widget.Toast.makeText(this,
+                    "朗读模式：" + TextReaderService.loopModeName(next),
+                    android.widget.Toast.LENGTH_SHORT).show();
+            updateUi();
+            return;
+        }
         if (player == null) return;
         if (player.getRepeatMode() == Player.REPEAT_MODE_OFF) {
             player.setRepeatMode(Player.REPEAT_MODE_ONE);
@@ -369,23 +409,36 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private boolean isReadingMode() {
-        return TextReaderService.isRunning() && (player == null || !player.isPlaying());
+        if (player != null && player.isPlaying()) return false;
+        if (TextReaderService.isRunning()) return true;
+        return (player == null || player.getCurrentMediaItem() == null)
+                && !prefs.getString("lastTextUri", "").isEmpty();
+    }
+
+    private String currentReadingUri() {
+        String active = TextReaderService.activeTextUri();
+        if (!active.isEmpty() && !active.startsWith("inline:")) return active;
+        return prefs.getString("lastTextUri", "");
     }
 
     private void updateReadingUi() {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         String name = uri.isEmpty() ? "电子书朗读" : displayName(Uri.parse(uri));
+        boolean serviceRunning = TextReaderService.isRunning();
+        boolean paused = !serviceRunning || TextReaderService.isPaused();
         title.setText(name);
-        subtitle.setText(TextReaderService.isPaused() ? "电子书朗读 · 已暂停" : "电子书朗读 · 正在朗读");
+        subtitle.setText(serviceRunning
+                ? (paused ? "电子书朗读 · 已暂停" : "电子书朗读 · 正在朗读")
+                : "电子书朗读 · 待开始");
         time.setText(readingProgressText(uri));
         if (!dragging) seekBar.setProgress(readingProgressValue(uri));
-        playButton.setImageResource(TextReaderService.isPaused() ? R.drawable.ic_play : R.drawable.ic_pause);
-        playButton.setContentDescription(TextReaderService.isPaused() ? "继续" : "暂停");
-        speed.setText("朗读由系统 TTS 控制");
-        mode.setText("上一首/下一首 = 上一段/下一段");
+        playButton.setImageResource(paused ? R.drawable.ic_play : R.drawable.ic_pause);
+        playButton.setContentDescription(paused ? "继续" : "暂停");
+        speed.setText(String.format(Locale.CHINA, "朗读语速 %.2fx", TextReaderService.currentSpeechRate(prefs)));
+        mode.setText("朗读模式 · " + TextReaderService.loopModeName(TextReaderService.getLoopMode(prefs)));
         if (visual != null) {
             visual.setState(String.valueOf(title.getText()), String.valueOf(subtitle.getText()),
-                    currentReadingChunk(), false, true, 1f);
+                    currentReadingChunk(), !paused, true, 1f);
         }
     }
 
@@ -408,7 +461,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private String readingProgressTextForProgress(int progress) {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return "电子书朗读";
         List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return "电子书朗读";
@@ -425,7 +478,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void seekReadingByProgress(int progress) {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return;
@@ -434,7 +487,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void seekReadingByDelta(int delta) {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return;
@@ -447,7 +500,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void seekReadingPosition(TtsText.Position position) {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return;
@@ -493,7 +546,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void showReadingCatalogDialog() {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         try {
             ReadableBook book = BookLoader.load(this, Uri.parse(uri));
@@ -524,7 +577,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void addReadingBookmark() {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         int index = prefs.getInt("ttsChunk:" + uri, 0);
         JSONArray array = loadReadingBookmarks(uri);
@@ -536,7 +589,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void showReadingBookmarksDialog() {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         List<String> chunks = splitTextForTts(readText(Uri.parse(uri)));
         JSONArray marks = loadReadingBookmarks(uri);
@@ -564,7 +617,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private void showReadingSearchDialog() {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri == null || uri.isEmpty()) return;
         EditText input = new EditText(this);
         input.setSingleLine(true);
@@ -637,7 +690,7 @@ public class NowPlayingActivity extends AppCompatActivity {
     }
 
     private String currentReadingChunk() {
-        String uri = prefs.getString("lastTextUri", "");
+        String uri = currentReadingUri();
         if (uri.isEmpty()) return "";
         List<String> chunks = getCachedTextChunks(uri);
         if (chunks.isEmpty()) return "";

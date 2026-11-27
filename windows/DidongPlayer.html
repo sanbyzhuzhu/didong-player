@@ -422,23 +422,32 @@
         <span class="subtle">本机浏览器语音</span>
       </header>
       <div class="stack">
-        <input id="txtPicker" class="hidden-input" type="file" accept=".txt,.json">
+        <input id="txtPicker" class="hidden-input" type="file" multiple accept=".txt,.md,.json">
         <input id="bgPicker" class="hidden-input" type="file" multiple accept="audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg">
         <div class="row">
-          <button id="pickTxt">导入文本</button>
+          <button id="pickTxt">导入文本/书架</button>
           <button id="readToggle">朗读/暂停</button>
           <button id="readStop">停止朗读</button>
         </div>
         <div class="row">
           <select id="voiceSelect"></select>
           <select id="ttsRate">
-            <option value="0.8">慢速</option>
-            <option value="1" selected>正常</option>
-            <option value="1.25">稍快</option>
-            <option value="1.5">快速</option>
+            <option value="0.75">0.75x 慢速</option>
+            <option value="1" selected>1.00x 正常</option>
+            <option value="1.25">1.25x 稍快</option>
+            <option value="1.5">1.50x 快速</option>
+            <option value="1.75">1.75x 极快</option>
+            <option value="2">2.00x 倍速</option>
+          </select>
+          <select id="ttsLoop">
+            <option value="order">顺序连读</option>
+            <option value="one">单本循环</option>
+            <option value="all">书架循环</option>
+            <option value="stop">读完停止</option>
           </select>
         </div>
-        <div class="reader-text" id="readerText">导入 TXT 或 JSON 后，这里会显示朗读文本。</div>
+        <div class="bg-list" id="bookList"></div>
+        <div class="reader-text" id="readerText">导入 TXT / MD / JSON 后，这里会显示朗读文本。</div>
         <div class="row">
           <button id="pickBg">添加背景音乐</button>
           <button id="bgPlay">背景播放/暂停</button>
@@ -472,6 +481,9 @@
     const libraryCount = document.getElementById('libraryCount');
     const readerText = document.getElementById('readerText');
     const voiceSelect = document.getElementById('voiceSelect');
+    const ttsRateSelect = document.getElementById('ttsRate');
+    const ttsLoopSelect = document.getElementById('ttsLoop');
+    const bookList = document.getElementById('bookList');
     const bgList = document.getElementById('bgList');
     const bgAudio = new Audio();
 
@@ -485,11 +497,18 @@
     let currentUrl = '';
     let currentKind = 'audio';
     let ab = { a: null, b: null };
+    let readingBooks = [];
+    let readingBookIndex = -1;
     let readingText = '';
+    let readingKey = '';
     let readingOffset = 0;
     let readingPaused = true;
+    let readingGeneration = 0;
     let bgTracks = [];
     let bgIndex = 0;
+
+    if (memory.ttsRate) ttsRateSelect.value = String(memory.ttsRate);
+    if (memory.ttsLoop) ttsLoopSelect.value = String(memory.ttsLoop);
 
     for (const value of [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8]) {
       const option = document.createElement('option');
@@ -792,13 +811,82 @@
 
     document.getElementById('pickTxt').onclick = () => document.getElementById('txtPicker').click();
     document.getElementById('txtPicker').onchange = async e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const raw = await file.text();
-      readingText = file.name.toLowerCase().endsWith('.json') ? jsonToReadable(raw) : raw;
-      readingOffset = Number(memory[`read:${file.name}:${file.size}`] || 0);
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      let firstNewIndex = -1;
+      for (const file of files) {
+        const raw = await file.text();
+        const text = file.name.toLowerCase().endsWith('.json') ? jsonToReadable(raw) : raw;
+        const key = `read:${file.name}:${file.size}`;
+        const existingIndex = readingBooks.findIndex(item => item.key === key);
+        if (existingIndex >= 0) {
+          readingBooks[existingIndex].text = text;
+          if (firstNewIndex < 0) firstNewIndex = existingIndex;
+        } else {
+          readingBooks.push({ key, name: file.name, text });
+          if (firstNewIndex < 0) firstNewIndex = readingBooks.length - 1;
+        }
+      }
+      if (firstNewIndex >= 0) openReadingBook(firstNewIndex, !readingPaused);
+      e.target.value = '';
+    };
+
+    function openReadingBook(index, autoStart) {
+      if (index < 0 || index >= readingBooks.length) return;
+      readingGeneration++;
+      speechSynthesis.cancel();
+      readingBookIndex = index;
+      const book = readingBooks[index];
+      readingText = book.text;
+      readingKey = book.key;
+      readingOffset = Math.max(0, Math.min(Number(memory[readingKey] || 0), Math.max(0, readingText.length - 1)));
+      renderReadingBooks();
       showReadingText();
-      setStatus('已导入文本：' + file.name);
+      setStatus(`当前文本：${book.name}`);
+      if (autoStart) {
+        pauseMediaForReading();
+        readingPaused = false;
+        speakNext();
+      } else {
+        readingPaused = true;
+      }
+    }
+
+    function renderReadingBooks() {
+      bookList.innerHTML = '';
+      readingBooks.forEach((book, index) => {
+        const button = document.createElement('button');
+        button.className = 'item' + (index === readingBookIndex ? ' active' : '');
+        const tag = index === readingBookIndex ? (readingPaused ? '当前' : '朗读中') : '书架';
+        button.innerHTML = `<span class="name">${escapeHtml(book.name)}</span><span class="subtle">${tag}</span>`;
+        button.onclick = () => openReadingBook(index, !readingPaused);
+        bookList.appendChild(button);
+      });
+    }
+
+    function pauseMediaForReading() {
+      if (!audio.paused) audio.pause();
+      if (!video.paused) video.pause();
+    }
+
+    function restartCurrentSentenceIfReading() {
+      if (readingPaused || !readingText) return;
+      readingGeneration++;
+      speechSynthesis.cancel();
+      speakNext();
+    }
+
+    ttsRateSelect.onchange = () => {
+      memory.ttsRate = ttsRateSelect.value;
+      saveMemory();
+      setStatus(`朗读语速：${Number(ttsRateSelect.value).toFixed(2)}x`);
+      restartCurrentSentenceIfReading();
+    };
+    voiceSelect.onchange = () => restartCurrentSentenceIfReading();
+    ttsLoopSelect.onchange = () => {
+      memory.ttsLoop = ttsLoopSelect.value;
+      saveMemory();
+      setStatus(`朗读模式：${ttsLoopSelect.options[ttsLoopSelect.selectedIndex].text}`);
     };
 
     function jsonToReadable(raw) {
@@ -819,7 +907,7 @@
 
     function showReadingText(highlightLength = 0) {
       if (!readingText) {
-        readerText.textContent = '导入 TXT 或 JSON 后，这里会显示朗读文本。';
+        readerText.textContent = '导入 TXT / MD / JSON 后，这里会显示朗读文本。';
         return;
       }
       const start = Math.max(0, readingOffset - 160);
@@ -835,23 +923,68 @@
       return text.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     }
 
-    function speakNext() {
-      if (!readingText || readingOffset >= readingText.length) {
-        readingPaused = true;
+    function handleReadingBookEnded() {
+      if (readingKey) {
+        memory[readingKey] = 0;
+        saveMemory();
+      }
+      const mode = ttsLoopSelect.value || 'order';
+      if (mode === 'one') {
+        readingOffset = 0;
+        showReadingText();
+        speakNext();
         return;
       }
+      if (mode === 'stop') {
+        readingOffset = 0;
+        readingPaused = true;
+        renderReadingBooks();
+        showReadingText();
+        setStatus('当前文本已读完并停止');
+        return;
+      }
+      if (readingBookIndex >= 0 && readingBookIndex + 1 < readingBooks.length) {
+        openReadingBook(readingBookIndex + 1, true);
+        return;
+      }
+      if (mode === 'all' && readingBooks.length > 0) {
+        openReadingBook(0, true);
+        return;
+      }
+      readingOffset = 0;
+      readingPaused = true;
+      renderReadingBooks();
+      showReadingText();
+      setStatus('书架文本已全部朗读完成');
+    }
+
+    function speakNext() {
+      if (!readingText) {
+        readingPaused = true;
+        renderReadingBooks();
+        return;
+      }
+      if (readingOffset >= readingText.length) {
+        handleReadingBookEnded();
+        return;
+      }
+      const gen = ++readingGeneration;
       const text = readingText.slice(readingOffset, readingOffset + 420);
       const sentenceEnd = text.search(/[。！？!?；;\n]/);
       const chunk = text.slice(0, sentenceEnd > 40 ? sentenceEnd + 1 : Math.min(text.length, 420));
       const utterance = new SpeechSynthesisUtterance(chunk);
       const voices = speechSynthesis.getVoices();
       if (voices[voiceSelect.value]) utterance.voice = voices[voiceSelect.value];
-      utterance.rate = Number(document.getElementById('ttsRate').value || 1);
+      utterance.rate = Number(ttsRateSelect.value || 1);
+      showReadingText(chunk.length);
       utterance.onboundary = event => {
+        if (gen !== readingGeneration) return;
         if (typeof event.charIndex === 'number') showReadingText(Math.max(1, event.charLength || 1));
       };
       utterance.onend = () => {
+        if (gen !== readingGeneration) return;
         readingOffset += chunk.length;
+        if (readingKey) memory[readingKey] = readingOffset;
         memory.lastReadingOffset = readingOffset;
         saveMemory();
         showReadingText();
@@ -864,16 +997,26 @@
       if (!readingText) return;
       if (!readingPaused) {
         readingPaused = true;
+        readingGeneration++;
         speechSynthesis.cancel();
+        renderReadingBooks();
       } else {
+        pauseMediaForReading();
         readingPaused = false;
+        renderReadingBooks();
         speakNext();
       }
     };
     document.getElementById('readStop').onclick = () => {
       readingPaused = true;
+      readingGeneration++;
       speechSynthesis.cancel();
       readingOffset = 0;
+      if (readingKey) {
+        memory[readingKey] = 0;
+        saveMemory();
+      }
+      renderReadingBooks();
       showReadingText();
     };
 

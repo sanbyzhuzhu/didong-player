@@ -49,13 +49,21 @@ import java.util.zip.ZipInputStream;
 public class TextReaderService extends Service implements TextToSpeech.OnInitListener {
     static final String ACTION_START = "com.dongting.player.TEXT_START";
     static final String ACTION_TOGGLE = "com.dongting.player.TEXT_TOGGLE";
+    static final String ACTION_PAUSE = "com.dongting.player.TEXT_PAUSE";
     static final String ACTION_PREVIOUS = "com.dongting.player.TEXT_PREVIOUS";
     static final String ACTION_NEXT = "com.dongting.player.TEXT_NEXT";
     static final String ACTION_RESTART = "com.dongting.player.TEXT_RESTART";
     static final String ACTION_STOP = "com.dongting.player.TEXT_STOP";
     static final String ACTION_SEEK_CHUNK = "com.dongting.player.TEXT_SEEK_CHUNK";
+    static final String ACTION_APPLY_SETTINGS = "com.dongting.player.TEXT_APPLY_SETTINGS";
     static final String ACTION_BACKGROUND_UPDATE = "com.dongting.player.TEXT_BACKGROUND_UPDATE";
     static final String ACTION_BACKGROUND_STOP = "com.dongting.player.TEXT_BACKGROUND_STOP";
+
+    static final int LOOP_SEQUENCE = 0;
+    static final int LOOP_REPEAT_ONE = 1;
+    static final int LOOP_REPEAT_ALL = 2;
+    static final int LOOP_STOP_AFTER = 3;
+    static final String PREF_LOOP_MODE = "ttsLoopMode";
 
     static final String EXTRA_TEXT_URI = "text_uri";
     static final String EXTRA_CHUNK_INDEX = "chunk_index";
@@ -301,6 +309,8 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
             }
         } else if (ACTION_TOGGLE.equals(action)) {
             toggle();
+        } else if (ACTION_PAUSE.equals(action)) {
+            if (!paused) pauseReading();
         } else if (ACTION_PREVIOUS.equals(action)) {
             moveChunk(-1);
         } else if (ACTION_NEXT.equals(action)) {
@@ -317,6 +327,13 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
             speakCurrent();
         } else if (ACTION_SEEK_CHUNK.equals(action)) {
             seekChunk(intent.getIntExtra(EXTRA_CHUNK_INDEX, currentChunk), intent.getIntExtra(EXTRA_SENTENCE_OFFSET, 0));
+        } else if (ACTION_APPLY_SETTINGS.equals(action)) {
+            applyTtsSettings();
+            if (!paused && !chunks.isEmpty()) {
+                // 立即按新语速/音调/音色重读当前句，让调速即时生效
+                nextSpeakOffset = currentSpeakOffset;
+                speakCurrent();
+            }
         } else if (ACTION_STOP.equals(action)) {
             stopReading();
         } else if (ACTION_BACKGROUND_UPDATE.equals(action)) {
@@ -424,6 +441,43 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         return rangeTrackingSupported;
     }
 
+    static String activeTextUri() {
+        return serviceRunning ? activeTextUri : "";
+    }
+
+    static int getLoopMode(SharedPreferences prefs) {
+        if (prefs == null) return LOOP_SEQUENCE;
+        int mode = prefs.getInt(PREF_LOOP_MODE, LOOP_SEQUENCE);
+        return (mode < LOOP_SEQUENCE || mode > LOOP_STOP_AFTER) ? LOOP_SEQUENCE : mode;
+    }
+
+    static int cycleLoopMode(SharedPreferences prefs) {
+        int next = (getLoopMode(prefs) + 1) % 4;
+        if (prefs != null) prefs.edit().putInt(PREF_LOOP_MODE, next).apply();
+        return next;
+    }
+
+    static String loopModeName(int mode) {
+        if (mode == LOOP_REPEAT_ONE) return "单本循环";
+        if (mode == LOOP_REPEAT_ALL) return "书架循环";
+        if (mode == LOOP_STOP_AFTER) return "读完停止";
+        return "顺序连读";
+    }
+
+    static float rateFromProgress(int progress) {
+        int clamped = Math.max(0, Math.min(150, progress));
+        return 0.5f + (clamped / 100f);
+    }
+
+    static int progressFromRate(float rate) {
+        return Math.max(0, Math.min(150, Math.round((rate - 0.5f) * 100f)));
+    }
+
+    static float currentSpeechRate(SharedPreferences prefs) {
+        int progress = prefs == null ? 75 : prefs.getInt("ttsRate", 75);
+        return rateFromProgress(progress);
+    }
+
     private boolean loadText(Uri uri) {
         chunks.clear();
         String text = readText(uri);
@@ -481,8 +535,35 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         if (paused) return;
         acquireWakeLock();
         if (currentChunk >= chunks.size()) {
-            if (!textUri.isEmpty()) prefs.edit().putInt("ttsChunk:" + textUri, 0).apply();
-            if (playNextTextBook()) return;
+            resetCurrentBookProgress();
+            if (prefs.getBoolean("stopAfterCurrent", false)) {
+                prefs.edit().putBoolean("stopAfterCurrent", false).apply();
+                currentChunk = 0;
+                nextSpeakOffset = 0;
+                stopReading();
+                return;
+            }
+            int mode = getLoopMode(prefs);
+            if (mode == LOOP_REPEAT_ONE) {
+                currentChunk = 0;
+                nextSpeakOffset = 0;
+                speakCurrent();
+                return;
+            }
+            if (mode == LOOP_STOP_AFTER) {
+                currentChunk = 0;
+                nextSpeakOffset = 0;
+                stopReading();
+                return;
+            }
+            if (mode == LOOP_REPEAT_ALL) {
+                if (playNextTextBook(true)) return;
+                currentChunk = 0;
+                nextSpeakOffset = 0;
+                speakCurrent();
+                return;
+            }
+            if (playNextTextBook(false)) return;
             currentChunk = 0;
             nextSpeakOffset = 0;
             stopReading();
@@ -525,33 +606,55 @@ public class TextReaderService extends Service implements TextToSpeech.OnInitLis
         return chunks.get(Math.max(0, Math.min(currentChunk, chunks.size() - 1)));
     }
 
-    private boolean playNextTextBook() {
-        String next = nextTextBookUri();
-        if (next.isEmpty()) return false;
-        textUri = next;
-        activeTextUri = textUri;
-        title = readDisplayName(Uri.parse(next));
-        currentChunk = Math.max(0, prefs.getInt("ttsChunk:" + textUri, 0));
-        if (!loadText(Uri.parse(next))) return playNextTextBook();
-        prefs.edit().putString("lastTextUri", textUri).apply();
-        speakCurrent();
-        return true;
+    private void resetCurrentBookProgress() {
+        if (textUri == null || textUri.isEmpty()) return;
+        prefs.edit()
+                .putInt("ttsChunk:" + textUri, 0)
+                .putInt("ttsSentenceChunk:" + textUri, 0)
+                .putInt("ttsSentenceStart:" + textUri, 0)
+                .putInt("ttsSentenceEnd:" + textUri, 0)
+                .putInt("ttsRangeStart:" + textUri, 0)
+                .putInt("ttsRangeEnd:" + textUri, 0)
+                .apply();
     }
 
-    private String nextTextBookUri() {
-        if (textUri == null || textUri.isEmpty() || textUri.startsWith("inline:")) return "";
+    private boolean playNextTextBook(boolean wrap) {
+        List<String> books = loadTextBookUris();
+        if (books.isEmpty()) return false;
+        int currentIndex = books.indexOf(textUri);
+        if (currentIndex < 0) return false;
+        int total = books.size();
+        int maxAttempts = wrap ? total : (total - 1 - currentIndex);
+        if (maxAttempts <= 0) return false;
+        for (int step = 1; step <= maxAttempts; step++) {
+            int candidateIndex = wrap ? (currentIndex + step) % total : (currentIndex + step);
+            String next = books.get(candidateIndex);
+            if (next.isEmpty()) continue;
+            textUri = next;
+            activeTextUri = textUri;
+            title = readDisplayName(Uri.parse(next));
+            currentChunk = Math.max(0, prefs.getInt("ttsChunk:" + textUri, 0));
+            if (loadText(Uri.parse(next))) {
+                prefs.edit().putString("lastTextUri", textUri).apply();
+                speakCurrent();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<String> loadTextBookUris() {
         List<String> books = new ArrayList<>();
+        if (textUri == null || textUri.isEmpty() || textUri.startsWith("inline:")) return books;
         try {
             JSONArray array = new JSONArray(prefs.getString("textBooks", "[]"));
             for (int i = 0; i < array.length(); i++) {
                 String uri = array.getJSONObject(i).optString("uri", "");
-                if (!uri.isEmpty()) books.add(uri);
+                if (!uri.isEmpty() && !books.contains(uri)) books.add(uri);
             }
         } catch (JSONException ignored) {
         }
-        int index = books.indexOf(textUri);
-        if (index < 0 || index + 1 >= books.size()) return "";
-        return books.get(index + 1);
+        return books;
     }
 
     private void speakCurrentWithSystemTts(String speakText) {

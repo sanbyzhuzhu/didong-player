@@ -87,6 +87,11 @@ public class SettingsActivity extends AppCompatActivity {
         }
         addSection(root, "外观主题", themeButtons);
 
+        addSection(root, "云端文件",
+                label("WebDAV 账号加密保存在本机，可浏览目录、播放影音或下载电子书。", 13, UiKit.SUBTLE),
+                btn("WebDAV 连接与文件", v -> startActivity(new Intent(this, WebDavActivity.class))),
+                btn("Wi-Fi 文件传输", v -> startActivity(new Intent(this, WifiTransferActivity.class))));
+
         addSection(root, "播放设置",
                 btn("恢复全部默认", v -> confirmResetAllDefaults()),
                 btn("关闭睡眠定时", v -> {
@@ -112,13 +117,23 @@ public class SettingsActivity extends AppCompatActivity {
                 }),
                 btn("打开系统声音设置", v -> openSoundSettings()));
 
+        Button ttsLoopBtn = btn("朗读循环模式：" + TextReaderService.loopModeName(TextReaderService.getLoopMode(prefs)), null);
+        ttsLoopBtn.setOnClickListener(v -> {
+            int next = TextReaderService.cycleLoopMode(prefs);
+            String name = TextReaderService.loopModeName(next);
+            ttsLoopBtn.setText("朗读循环模式：" + name);
+            toast("朗读模式：" + name);
+        });
+
         addSection(root, "朗读设置",
+                ttsLoopBtn,
                 slider("朗读语速", "ttsRate", 150, 75),
                 slider("朗读音调", "ttsPitch", 100, 50),
                 slider("背景音乐音量", "bgVolume", 100, 25),
                 btn("恢复朗读默认", v -> {
                     prefs.edit().putInt("ttsRate", 75).putInt("ttsPitch", 50).putInt("bgVolume", 25).remove("ttsVoice").apply();
                     notifyBackgroundVolumeIfNeeded("bgVolume");
+                    notifyTtsSettingsIfNeeded("ttsRate");
                     toast("朗读设置已恢复默认");
                 }),
                 btn("清除地洞人声绑定", v -> {
@@ -317,13 +332,13 @@ public class SettingsActivity extends AppCompatActivity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(0, dp(4), 0, dp(8));
-        TextView value = label(title + "：" + prefs.getInt(key, defaultValue), 14, UiKit.SUBTLE);
+        TextView value = label(formatSliderLabel(title, key, prefs.getInt(key, defaultValue)), 14, UiKit.SUBTLE);
         SeekBar bar = UiKit.seekBar(this);
         bar.setMax(max);
         bar.setProgress(prefs.getInt(key, defaultValue));
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                value.setText(title + "：" + progress);
+                value.setText(formatSliderLabel(title, key, progress));
                 if (fromUser) {
                     prefs.edit().putInt(key, progress).apply();
                     notifyBackgroundVolumeIfNeeded(key);
@@ -336,6 +351,7 @@ public class SettingsActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(SeekBar seekBar) {
                 prefs.edit().putInt(key, seekBar.getProgress()).apply();
                 notifyBackgroundVolumeIfNeeded(key);
+                notifyTtsSettingsIfNeeded(key);
             }
         });
         box.addView(value);
@@ -343,9 +359,24 @@ public class SettingsActivity extends AppCompatActivity {
         return box;
     }
 
+    private String formatSliderLabel(String title, String key, int progress) {
+        if ("ttsRate".equals(key)) {
+            return String.format(java.util.Locale.CHINA, "%s：%.2fx", title, TextReaderService.rateFromProgress(progress));
+        }
+        if ("ttsPitch".equals(key)) {
+            return String.format(java.util.Locale.CHINA, "%s：%.2fx", title, 0.5f + (progress / 100f));
+        }
+        return title + "：" + progress;
+    }
+
     private void notifyBackgroundVolumeIfNeeded(String key) {
         if (!"bgVolume".equals(key) || !TextReaderService.isRunning()) return;
         startService(new Intent(this, TextReaderService.class).setAction(TextReaderService.ACTION_BACKGROUND_UPDATE));
+    }
+
+    private void notifyTtsSettingsIfNeeded(String key) {
+        if ((!"ttsRate".equals(key) && !"ttsPitch".equals(key)) || !TextReaderService.isRunning()) return;
+        startService(new Intent(this, TextReaderService.class).setAction(TextReaderService.ACTION_APPLY_SETTINGS));
     }
 
     private View check(String text, String key, boolean defaultValue) {

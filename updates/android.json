@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "versionCode": 21,
-  "versionName": "0.0.21",
-  "publishedAt": "2026-11-25",
-  "releaseNotes": "新增设置页底部的软件更新入口。后台静默检查 GitHub / Gitee，有新版本仅在这里显示红点，不弹窗、不自动下载安装。可查看更新、二次确认后前往官方发布页，或忽略此版本并继续使用当前版本。保留 EPUB、Markdown、HTML、DOCX 等电子书朗读及原有影音功能。",
-  "releaseUrl": "https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.21",
+  "versionCode": 24,
+  "versionName": "0.0.24",
+  "publishedAt": "2026-11-27",
+  "releaseNotes": "Android 新增 Wi-Fi 文件传输：同一局域网的电脑或手机通过浏览器批量上传影音、电子书，显示进度并支持取消；完成后加入播放列表或书架，可离线播放和朗读。已收文件可在浏览器下载，也可在手机清理。同名文件不覆盖，未完成文件不入库；传输手动开启，离开页面关闭，每次更换随机访问地址。保留 WebDAV 云端文件功能，Windows 仍随包提供免安装网页版。",
+  "releaseUrl": "https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.24",
   "mirrorUrl": "https://gitee.com/sanbyzhu/didong-player"
 }

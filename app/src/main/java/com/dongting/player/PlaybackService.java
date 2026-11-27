@@ -85,7 +85,8 @@ public class PlaybackService extends Service {
                 .setUsage(C.USAGE_MEDIA)
                 .build();
         // 音频焦点由本服务自己管理：丢失即暂停、回来不自动播放。
-        player = new ExoPlayer.Builder(this).setAudioAttributes(attrs, false).build();
+        player = new ExoPlayer.Builder(this).setMediaSourceFactory(WebDavMedia.sources(this))
+                .setAudioAttributes(attrs, false).build();
         player.setHandleAudioBecomingNoisy(true);
         player.setWakeMode(C.WAKE_MODE_LOCAL);
         mediaSession = new MediaSession.Builder(this, player).build();
