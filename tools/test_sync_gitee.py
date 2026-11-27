@@ -187,6 +187,19 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "portable ASCII"):
             sync.safe_name("../secret")
 
+    def test_large_upload_timeout_and_github_credential_isolation(self):
+        client = sync.ReleaseSync("gitee-test-token", "github-test-token")
+        with tempfile.TemporaryDirectory() as temporary:
+            asset = Path(temporary) / "player.apk"
+            asset.write_bytes(b"fixture")
+            with mock.patch.object(client.api_opener, "open", return_value=io.BytesIO(b'{"name":"player.apk"}')) as opened:
+                client.api("Gitee", "POST", "/api/v5/repos/example/repo/releases/1/attach_files", upload=asset)
+            request = opened.call_args.args[0]
+            self.assertEqual(opened.call_args.kwargs["timeout"], 600)
+            self.assertIsNone(request.get_header("Authorization"))
+            self.assertNotIn(b"github-test-token", request.data)
+            self.assertIn(b"gitee-test-token", request.data)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

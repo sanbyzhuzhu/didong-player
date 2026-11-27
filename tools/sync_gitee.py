@@ -136,14 +136,15 @@ class ReleaseSync:
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         for attempt in range(3 if method == "GET" else 1):
             try:
-                with self.api_opener.open(request, timeout=120) as response:
+                with self.api_opener.open(request, timeout=600 if upload is not None else 120) as response:
                     return json.load(response)
             except urllib.error.HTTPError as error:
                 if method != "GET" or error.code not in {429, 500, 502, 503, 504} or attempt == 2:
                     raise ApiError(service, method, path, error.code) from None
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
                 if method != "GET" or attempt == 2:
-                    raise RuntimeError(f"{service} API transport error ({method} {path}); check connectivity and rerun") from None
+                    reason = type(getattr(error, "reason", error)).__name__
+                    raise RuntimeError(f"{service} API transport error ({method} {path}, {reason}); check connectivity and rerun") from None
             time.sleep(2 ** attempt)
 
     def download(self, url, destination, expected_size=None):
@@ -217,9 +218,11 @@ class ReleaseSync:
                     if actual != digest:
                         raise ValueError("Existing Gitee asset differs; refusing to overwrite: " + name)
                 else:
+                    print("Uploading Gitee asset:", name, (directory / name).stat().st_size, "bytes", flush=True)
                     uploaded = self.api("Gitee", "POST", route + f"/{release_id}/attach_files", upload=directory / name)
                     if uploaded["name"] != name:
                         raise ValueError("Gitee changed the asset filename; checksums would not match")
+                    print("Uploaded Gitee asset:", name, flush=True)
             final = self.assets(release_id)
             for name, digest in expected.items():
                 if name not in final or self.download(final[name]["browser_download_url"], directory / "verified.bin") != digest:
