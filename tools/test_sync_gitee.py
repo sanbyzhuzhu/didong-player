@@ -192,13 +192,18 @@ class ReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             asset = Path(temporary) / "player.apk"
             asset.write_bytes(b"fixture")
-            with mock.patch.object(client.api_opener, "open", return_value=io.BytesIO(b'{"name":"player.apk"}')) as opened:
+            response = subprocess.CompletedProcess([], 0, b'{"name":"player.apk"}\n201', b'')
+            with mock.patch.object(sync.subprocess, "run", return_value=response) as uploaded:
                 client.api("Gitee", "POST", "/api/v5/repos/example/repo/releases/1/attach_files", upload=asset)
-            request = opened.call_args.args[0]
-            self.assertEqual(opened.call_args.kwargs["timeout"], 600)
-            self.assertIsNone(request.get_header("Authorization"))
-            self.assertNotIn(b"github-test-token", request.data)
-            self.assertIn(b"gitee-test-token", request.data)
+            self.assertEqual(uploaded.call_args.args[0], ["curl", "--disable", "--config", "-"])
+            self.assertEqual(uploaded.call_args.kwargs["timeout"], 660)
+            config = uploaded.call_args.kwargs["input"]
+            self.assertIn(b'max-time = 600', config)
+            self.assertNotIn(b"github-test-token", config)
+            self.assertIn(b"gitee-test-token", config)
+            self.assertNotIn("GITHUB_TOKEN", uploaded.call_args.kwargs["env"])
+            self.assertNotIn("GITEE_TOKEN", uploaded.call_args.kwargs["env"])
+            self.assertNotIn(b'location', config)
 
 
 if __name__ == "__main__":

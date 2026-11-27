@@ -125,14 +125,9 @@ class ReleaseSync:
             data = urllib.parse.urlencode(dict(fields or {}, access_token=self.gitee_token)).encode("utf-8")
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         else:
-            path_file = Path(upload)
-            safe_name(path_file.name)
-            boundary = "didong-" + os.urandom(16).hex()
-            data = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"access_token\"\r\n\r\n{self.gitee_token}\r\n"
-                    f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{path_file.name}\"\r\n"
-                    "Content-Type: application/octet-stream\r\n\r\n").encode("utf-8")
-            data += path_file.read_bytes() + f"\r\n--{boundary}--\r\n".encode("ascii")
-            headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
+            if method != "POST":
+                raise ValueError("Attachment uploads must use POST")
+            return self.upload_file(path, upload)
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
         for attempt in range(3 if method == "GET" else 1):
             try:
@@ -163,6 +158,36 @@ class ReleaseSync:
         if expected_size is not None and total != expected_size:
             raise ValueError("Incomplete release asset download")
         return hashlib.sha256(Path(destination).read_bytes()).hexdigest()
+
+    def upload_file(self, route, upload):
+        path = Path(upload).resolve()
+        safe_name(path.name)
+        if not 0 < path.stat().st_size <= MAX_ASSET:
+            raise ValueError("Invalid release asset size")
+        quote = lambda value: '"' + value.replace('\\', '\\\\').replace('"', '\\"').replace('\r', '\\r').replace('\n', '\\n') + '"'
+        # Stream the file with curl. The PAT is supplied only via stdin, never argv or a file.
+        config = '\n'.join([
+            'silent', 'show-error', 'request = "POST"', 'proto = "=https"',
+            'connect-timeout = 30', 'max-time = 600',
+            'url = ' + quote('https://gitee.com' + route),
+            'user-agent = "didong-gitee-sync"', 'header = "Accept: application/json"',
+            'form-string = ' + quote('access_token=' + self.gitee_token),
+            'form = ' + quote('file=@' + str(path) + ';type=application/octet-stream;filename=' + path.name),
+            'write-out = "\\n%{http_code}"', ''
+        ])
+        env = {key: value for key, value in os.environ.items() if key not in {"GITHUB_TOKEN", "GH_TOKEN", "GITEE_TOKEN"}}
+        result = subprocess.run(["curl", "--disable", "--config", "-"], input=config.encode("utf-8"),
+                                capture_output=True, env=env, timeout=660)
+        if result.returncode:
+            raise RuntimeError(f"Gitee attachment transport failed (curl exit {result.returncode}); inspect existing assets before rerunning")
+        try:
+            body, status = result.stdout.rsplit(b'\n', 1)
+            status = int(status)
+        except (ValueError, TypeError):
+            raise RuntimeError("Invalid Gitee attachment upload response") from None
+        if not 200 <= status < 300:
+            raise ApiError("Gitee", "POST", route, status)
+        return json.loads(body)
 
     def assets(self, release_id):
         assets = self.api("Gitee", "GET", f"/api/v5/repos/{GITEE_REPO}/releases/{release_id}/attach_files")
@@ -211,7 +236,8 @@ class ReleaseSync:
                 self.api("Gitee", "PATCH", route + "/" + str(mirrored["id"]), fields)
             release_id = mirrored["id"]
             existing = self.assets(release_id)
-            for name, digest in expected.items():
+            for name in sorted(expected, key=lambda item: (directory / item).stat().st_size):
+                digest = expected[name]
                 found = existing.get(name)
                 if found is not None:
                     actual = self.download(found["browser_download_url"], directory / "existing.bin")
