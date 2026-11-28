@@ -337,7 +337,7 @@
       </header>
       <div class="stack">
         <input id="folderPicker" class="hidden-input" type="file" webkitdirectory multiple>
-        <input id="filePicker" class="hidden-input" type="file" multiple accept="audio/*,video/*,.mp3,.flac,.wav,.m4a,.aac,.ogg,.mp4,.mkv,.mov,.avi,.webm">
+        <input id="filePicker" class="hidden-input" type="file" multiple accept="audio/*,video/*,.mp3,.mp2,.flac,.wav,.m4a,.m4b,.aac,.ogg,.oga,.opus,.amr,.wma,.aiff,.aif,.ac3,.eac3,.ac4,.mp4,.mkv,.mov,.avi,.webm,.m4v,.ts,.m2ts,.mts,.3gp,.3gpp,.flv,.wmv,.mpg,.mpeg,.mpe,.m2p,.vob">
         <div class="row">
           <button class="primary" id="pickFolder">扫描文件夹</button>
           <button id="pickFiles">打开文件</button>
@@ -423,7 +423,7 @@
       </header>
       <div class="stack">
         <input id="txtPicker" class="hidden-input" type="file" multiple accept=".txt,.md,.json">
-        <input id="bgPicker" class="hidden-input" type="file" multiple accept="audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg">
+        <input id="bgPicker" class="hidden-input" type="file" multiple accept="audio/*,.mp3,.mp2,.flac,.wav,.m4a,.m4b,.aac,.ogg,.oga,.opus,.amr,.wma,.aiff,.aif,.ac3,.eac3,.ac4">
         <div class="row">
           <button id="pickTxt">导入文本/书架</button>
           <button id="readToggle">朗读/暂停</button>
@@ -487,8 +487,8 @@
     const bgList = document.getElementById('bgList');
     const bgAudio = new Audio();
 
-    const audioExt = /\.(mp3|flac|wav|m4a|aac|ogg|opus|wma)$/i;
-    const videoExt = /\.(mp4|mkv|mov|avi|webm|m4v|ts|flv|wmv)$/i;
+    const audioExt = /\.(mp3|mp2|flac|wav|m4a|m4b|aac|ogg|oga|opus|amr|wma|aiff|aif|ac3|eac3|ac4)$/i;
+    const videoExt = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|mts|3gp|3gpp|flv|wmv|mpg|mpeg|mpe|m2p|vob)$/i;
     const memory = JSON.parse(localStorage.getItem('didongWindowsMemory') || '{}');
     let tracks = [];
     let folders = [];

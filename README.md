@@ -2,13 +2,13 @@
 
 地洞播放器-一款无广告开源的本地离线播放器（非常小，才8M左右），安卓优先，面向听课、听书、整理本地影音和长文本朗读等场景，可以支持音频和视频的循环播放、AB点重复播放、倍速播放，支持电子书（TXT、epub,json,md,docx）文本的朗读，文本以字幕的形式一句一句跟读，让你实现边听边看的效果，朗读时可设置背景音乐，朗读用本地声音源，不需额外花钱。
 
-当前版本：`V0.0.24`
+当前版本：`V0.0.25`
 
 ![V0.0.20 电子书朗读更新](docs/promo/v0.0.20/wechat-cover-900x383.png)
 
-[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.24)
+[GitHub 源码](https://github.com/sanbyzhuzhu/didong-player) · [Gitee 镜像](https://gitee.com/sanbyzhu/didong-player) · [下载安装包](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.25)
 
-本版重点：新增 [Wi-Fi 文件传输](docs/wifi-transfer.md)，同一局域网的电脑或手机用浏览器批量上传影音和电子书，完成后加入播放列表或书架；支持进度、取消、同名文件保留和已收文件下载。另包含 [WebDAV 云端文件](docs/webdav.md)：账号密码加密保存在本机，可浏览目录、在线播放影音及下载电子书后离线朗读。保留设置页底部的静默更新入口及原有电子书功能，详见 [Changelog](CHANGELOG.md)。下方配图及 [V0.0.20 宣发素材](docs/promo/v0.0.20/宣发文案.md) 是较早版本的功能介绍。
+本版重点：补齐 MPG/MPEG/VOB/MTS 等影音格式识别，保留 FLAC 支持；实际播放取决于设备或浏览器解码能力，尚未完成实机验证。保留 [Wi-Fi 文件传输](docs/wifi-transfer.md)，同一局域网的电脑或手机用浏览器批量上传影音和电子书，完成后加入播放列表或书架；支持进度、取消、同名文件保留和已收文件下载。另包含 [WebDAV 云端文件](docs/webdav.md)：账号密码加密保存在本机，可浏览目录、在线播放影音及下载电子书后离线朗读。保留设置页底部的静默更新入口及原有电子书功能，详见 [Changelog](CHANGELOG.md)。下方配图及 [V0.0.20 宣发素材](docs/promo/v0.0.20/宣发文案.md) 是较早版本的功能介绍。
 
 ## 界面预览
 
@@ -47,12 +47,12 @@
 
 ## 下载
 
-Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.24 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.24)。Gitee 同步源码、版本标签、更新清单和说明，可通过本页下载入口获取相同安装包。V0.0.21 及以上的 Android 客户端会在设置页底部静默提示新版，不弹窗、不自动下载安装。
+Android APK、完整源码 ZIP、Windows 免安装浏览器版及 SHA256 校验文件统一放在 [GitHub V0.0.25 发布页](https://github.com/sanbyzhuzhu/didong-player/releases/tag/v0.0.25)。Gitee 同步源码、版本标签、更新清单和说明，可通过本页下载入口获取相同安装包。V0.0.21 及以上的 Android 客户端会在设置页底部静默提示新版，不弹窗、不自动下载安装。
 
 本地本次双平台发布归档位于：
 
 ```text
-release/v0.0.24_WiFi无线传输双平台发布/
+release/v0.0.25_MPG等影音格式识别补齐/
 ```
 
 当前 APK 使用调试签名；从本项目已发布的同签名版本升级时可覆盖安装。公开下载附件与 Git 源码历史分开保存，APK 不提交进 Git 历史。Windows 包为免安装浏览器原型，Wi-Fi 接收服务与 WebDAV 接入针对 Android。
@@ -75,7 +75,7 @@ Windows 包为现有浏览器原型，并非原生 EXE；解压后双击启动 B
 
 支持 GitHub `main` 更新后同步 Gitee 源码、标签与更新清单，以及发行版公开后同步安装包等附件。工作流默认未启用；仓库所有者需在 GitHub Actions 中配置专用 Secret `GITEE_TOKEN` 和 Variable `GITEE_SYNC_ENABLED=true`。不会读取或迁移本机登录密码。
 
-首次配置后，可手动运行 **Sync to Gitee**，填写 `release_tag=v0.0.24` 补齐现有版本附件。历史提交、同名标签和已有附件都有保护，详见 [自动同步配置说明](docs/gitee-sync.md)。
+首次配置后，可手动运行 **Sync to Gitee**，填写 `release_tag=v0.0.25` 补齐现有版本附件。历史提交、同名标签和已有附件都有保护，详见 [自动同步配置说明](docs/gitee-sync.md)。
 
 ## 构建
 
